@@ -140,6 +140,8 @@ switch (mode)
     case "trigger": Sequence.Trigger(q, Opt("--hold", 12)); break;
     case "headercost": Sequence.HeaderCost(q); break;
     case "latency": Sequence.Latency(q, Opt("--frames", 4)); break;
+    case "websafe": Sequence.WebSafe(q, Opt("--frames", 3), Opt("--chunk", 49)); break;
+    case "windowed": Sequence.Windowed(q, Opt("--frames", 2), Opt("--window", 4)); break;
     case "cycle": Sequence.Cycle(q, Opt("--frames", 8), Opt("--interval", 2000), Opt("--idle", 1)); break;
     default: Console.WriteLine($"Unknown mode '{mode}'"); return 1;
 }

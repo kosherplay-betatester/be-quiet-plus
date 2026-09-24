@@ -162,7 +162,6 @@ public sealed class TrayApp : ApplicationContext
             $"Screen         {_pipeline.CurrentScreen}",
             $"Frames         {_dock.FramesUploaded} uploaded, {_dock.FramesStalled} stalled",
             $"Last upload    {(_dock.LastUploadDuration.TotalMilliseconds > 0 ? $"{_dock.LastUploadDuration.TotalMilliseconds:F0} ms" : "--")}",
-            $"Nudges         {_dock.Nudges} (this session)",
             "",
             $"CPU            {V(s?.CpuTemp, " °C")}   {V(s?.CpuLoad, " %")}   {V(s?.CpuPower, " W")}",
             $"GPU            {V(s?.GpuTemp, " °C")}   {V(s?.GpuLoad, " %")}   {V(s?.GpuPower, " W")}",

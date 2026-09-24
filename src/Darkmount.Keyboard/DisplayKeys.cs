@@ -17,7 +17,7 @@ public sealed class DisplayKeys(QLinkClient q)
     public const byte FormatJpeg = 3;
     const int HeaderSize = 9;
     const int ReadChunk = 54;
-    const int WriteChunk = 2000;
+    const int WriteChunk = QLinkClient.MaxSingleFramePayload - 6; // key id + offset + 49 bytes
 
     public static ushort KeyId(int index) =>
         index is >= 0 and < Count ? (ushort)(FirstKeyId + index) : throw new ArgumentOutOfRangeException(nameof(index));
@@ -57,11 +57,12 @@ public sealed class DisplayKeys(QLinkClient q)
         BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(6), ImageSize);
         header[8] = FormatJpeg;
         Write(index, 0, header, 8000);
-        // Pipelined, never repeated (the firmware can hold a reply until the next write; a repeat corrupts the image).
+        // Single-frame writes, pipelined and never repeated (large writes make the firmware hold replies;
+        // a repeated chunk corrupts the image).
         var payloads = new List<byte[]>();
         for (int off = 0; off < jpeg.Length; off += WriteChunk)
             payloads.Add(Payload(index, HeaderSize + off, jpeg.AsSpan(off, Math.Min(WriteChunk, jpeg.Length - off))));
-        q.SendSequence(Features.Numpad, NumpadCommands.SetImage, payloads);
+        q.SendWindowed(Features.Numpad, NumpadCommands.SetImage, payloads);
     }
 
     static byte[] Payload(int index, int offset, ReadOnlySpan<byte> data)
@@ -83,7 +84,7 @@ public sealed class DisplayKeys(QLinkClient q)
     }
 
     void Write(int index, int offset, ReadOnlySpan<byte> data, int timeoutMs) =>
-        q.Send(Features.Numpad, NumpadCommands.SetImage, Payload(index, offset, data), timeoutMs, allowNudge: false);
+        q.Send(Features.Numpad, NumpadCommands.SetImage, Payload(index, offset, data), timeoutMs);
 
     /// <summary>Cover-scales to 120×120, rotates 90° clockwise (the panel's orientation) and encodes JPEG.</summary>
     public static byte[] EncodeForKey(SKBitmap source, int quality = 92)

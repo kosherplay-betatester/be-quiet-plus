@@ -167,8 +167,6 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
     /// <summary>Duration of the last successful upload.</summary>
     public TimeSpan LastUploadDuration { get; private set; }
 
-    /// <summary>Nudges sent to release held replies in the current session.</summary>
-    public int Nudges => _client?.Nudges ?? 0;
 
     /// <summary>Uploads a full RGB565 frame. Returns false when the keyboard is not available or backing off.</summary>
     public bool Present(byte[] rgb565)
@@ -204,8 +202,23 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
                 }
                 return true;
             }
+            catch (QLinkException e) when (DockWentAway())
+            {
+                // The dock module was unplugged mid-frame: keep the keyboard session, wait for the dock to return.
+                Log?.Invoke($"Media dock detached ({e.Status})");
+                _uploader = null;
+                _lastDockCheck = DateTime.UtcNow;
+                SetState(DockState.NoMediaDock);
+                return false;
+            }
             catch (Exception e) when (IsDeviceFailure(e)) { Lost(e); return false; }
         }
+    }
+
+    bool DockWentAway()
+    {
+        try { return _dock is not null && !_dock.IsConnected(); }
+        catch (Exception e) when (IsDeviceFailure(e)) { return false; }
     }
 
     /// <summary>The user's own dock settings (restored on exit/pause), or null before the first connection.</summary>

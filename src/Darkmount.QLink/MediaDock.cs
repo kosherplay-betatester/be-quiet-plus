@@ -60,27 +60,29 @@ public sealed class MediaDock(QLinkClient q)
         payload[0] = slot;
         BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(1), offset);
         data.CopyTo(payload.AsSpan(5));
-        // The header (offset 0) starts a new image; repeating it could reset the dock's buffer, so never nudge it.
-        q.Send(Features.MediaDock, MediaDockCommands.SetImage, payload, timeoutMs, allowNudge: offset != 0);
+        q.Send(Features.MediaDock, MediaDockCommands.SetImage, payload, timeoutMs);
     }
 
+    /// <summary>Pixel bytes per single-frame image write (55-byte payload = slot + offset + 50 pixels).</summary>
+    public const int PixelsPerWrite = QLinkClient.MaxSingleFramePayload - 5;
+
     /// <summary>
-    /// Writes image data (pixels start at offset 9) in chunks, pipelined and never repeated — see
-    /// <see cref="QLinkClient.SendSequence"/>.
+    /// Writes image data (pixels start at offset 9) as single-frame writes, pipelined and never repeated
+    /// (see <see cref="QLinkClient.SendWindowed"/>).
     /// </summary>
-    public void SetImageData(byte slot, ReadOnlySpan<byte> pixels, int chunkSize, int timeoutMs = 5000)
+    public void SetImageData(byte slot, ReadOnlySpan<byte> pixels, int window = 4, int replyTimeoutMs = 3000)
     {
-        var payloads = new List<byte[]>(pixels.Length / chunkSize + 1);
-        for (int offset = 0; offset < pixels.Length; offset += chunkSize)
+        var payloads = new List<byte[]>(pixels.Length / PixelsPerWrite + 1);
+        for (int offset = 0; offset < pixels.Length; offset += PixelsPerWrite)
         {
-            int len = Math.Min(chunkSize, pixels.Length - offset);
+            int len = Math.Min(PixelsPerWrite, pixels.Length - offset);
             var payload = new byte[5 + len];
             payload[0] = slot;
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(1), (uint)(HeaderSize + offset));
             pixels.Slice(offset, len).CopyTo(payload.AsSpan(5));
             payloads.Add(payload);
         }
-        q.SendSequence(Features.MediaDock, MediaDockCommands.SetImage, payloads, timeoutMs: timeoutMs);
+        q.SendWindowed(Features.MediaDock, MediaDockCommands.SetImage, payloads, window, replyTimeoutMs);
     }
 
     public static byte[] ImageHeader(int width, int height, int payloadLength, byte format = FormatRgb565)

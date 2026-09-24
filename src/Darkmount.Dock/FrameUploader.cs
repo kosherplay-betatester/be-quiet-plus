@@ -12,26 +12,24 @@ public enum UploadResult
 
 /// <summary>
 /// Sends complete 320×240 RGB565 frames to the dock's screensaver slot. The dock only redraws after a
-/// clean, complete upload. The dock is slow and easily overwhelmed, so the uploader never re-sends pixel data:
-/// it waits generously for each reply (the client flushes replies the firmware holds back with short nudges)
-/// and, if one never comes, abandons the frame and lets the caller back off before trying again from the header.
+/// clean, complete upload in which no byte arrives twice, so pixels go out as small single-frame writes, a few in
+/// flight, never repeated (measured ~2.2 s per frame including the ~0.75 s header). If a reply never comes the frame
+/// is abandoned and the caller backs off before trying again from the header.
 /// </summary>
 public sealed class FrameUploader(MediaDock dock)
 {
     public const int Width = 320, Height = 240;
     public const int FrameBytes = Width * Height * 2;
-    public const int DefaultChunkSize = 4000;
-
     readonly object _gate = new();
 
-    /// <summary>Pixel bytes per SetImage request (sent as one multi-frame message).</summary>
-    public int ChunkSize { get; init; } = DefaultChunkSize;
+    /// <summary>Single-frame image writes kept in flight (4 measured as fast as 8 or 16 on the Dark Mount).</summary>
+    public int Window { get; init; } = 4;
     readonly byte[] _header = MediaDock.ImageHeader(Width, Height, FrameBytes);
 
     /// <summary>How long to wait for the header reply (the dock prepares its buffer; can take seconds).</summary>
     public int HeaderTimeoutMs { get; init; } = 8000;
 
-    /// <summary>How long to wait for each pixel chunk reply.</summary>
+    /// <summary>How long to wait for each pixel write reply.</summary>
     public int ChunkTimeoutMs { get; init; } = 5000;
 
     public event Action<string>? Log;
@@ -53,7 +51,7 @@ public sealed class FrameUploader(MediaDock dock)
                 dock.SetImage(MediaDock.SlotScreensaver, 0, _header, HeaderTimeoutMs);
                 offset = 0;
                 // Pipelined and never repeated: the dock rejects an image if any chunk arrives twice.
-                dock.SetImageData(MediaDock.SlotScreensaver, rgb565, ChunkSize, ChunkTimeoutMs);
+                dock.SetImageData(MediaDock.SlotScreensaver, rgb565, Window, ChunkTimeoutMs);
                 LastDuration = sw.Elapsed;
                 return UploadResult.Done;
             }
@@ -61,7 +59,7 @@ public sealed class FrameUploader(MediaDock dock)
             {
                 Log?.Invoke(offset < 0
                     ? $"Dock did not accept a new image within {HeaderTimeoutMs} ms (asleep or busy)"
-                    : $"Dock stopped answering at byte {offset} of the frame");
+                    : "Dock stopped answering while receiving the frame's pixels");
                 return UploadResult.Stalled;
             }
         }

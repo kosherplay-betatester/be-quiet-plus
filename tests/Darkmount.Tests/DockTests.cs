@@ -21,7 +21,7 @@ public class DockTests : IDisposable
     // ---------------------------------------------------------------- FrameUploader
 
     [Fact]
-    public void Upload_sends_header_then_all_pixels_in_4000_byte_chunks()
+    public void Upload_sends_header_then_every_pixel_once_in_single_frame_writes()
     {
         var t = new FakeTransport();
         var q = new QLinkClient(t);
@@ -30,58 +30,34 @@ public class DockTests : IDisposable
         Assert.Equal(UploadResult.Done, up.Upload(Frame(0xAB)));
 
         var writes = SetImages(t);
-        Assert.Equal(1 + 39, writes.Count); // 153,600 / 4,000 = 38.4 → 39 chunks
+        Assert.Equal(1 + 3072, writes.Count); // header + 153,600 / 50
+        Assert.Equal(1 + 3072, t.Written.Count); // every write fits in one 64-byte packet
         Assert.Equal(MediaDock.ImageHeader(320, 240, FrameUploader.FrameBytes), writes[0].Data[5..]);
-        Assert.Equal(0u, OffsetOf(writes[0]));
-        Assert.Equal([9u, 4009u, 8009u], writes.Skip(1).Take(3).Select(OffsetOf));
-        Assert.Equal(9u + 38 * 4000, OffsetOf(writes[^1]));
-        Assert.Equal(1600 + 5, writes[^1].Data.Length);
+        Assert.Equal(Enumerable.Range(0, 3072).Select(i => 9u + (uint)i * 50).Prepend(0u), writes.Select(OffsetOf));
         Assert.All(writes, w => Assert.Equal(MediaDock.SlotScreensaver, w.Data[0]));
     }
 
     [Fact]
-    public void A_missing_reply_mid_upload_never_causes_a_repeated_chunk()
-    {
-        var t = new FakeTransport();
-        var q = new QLinkClient(t);
-        t.Responder = req => req.Command == MediaDockCommands.SetImage && OffsetOf(req) == 4009 ? null : FakeTransport.Ok(req);
-        var up = new FrameUploader(new MediaDock(q)) { HeaderTimeoutMs = 200, ChunkTimeoutMs = 400 };
-
-        up.Upload(Frame(2));
-
-        // Every chunk exactly once, in order — a repeated chunk would make the dock reject the image.
-        var offsets = SetImages(t).Select(OffsetOf).ToList();
-        Assert.Equal(offsets.Distinct().Count(), offsets.Count);
-        Assert.Equal(Enumerable.Range(0, 39).Select(i => 9u + (uint)i * 4000).Prepend(0u), offsets);
-    }
-
-    [Fact]
-    public void A_silent_dock_stalls_the_frame_after_two_outstanding_chunks()
+    public void A_silent_dock_stalls_the_frame_without_repeating_anything()
     {
         var t = new FakeTransport();
         var q = new QLinkClient(t);
         t.Responder = req => req.Command == MediaDockCommands.SetImage && OffsetOf(req) > 0 ? null : FakeTransport.Ok(req);
-        var up = new FrameUploader(new MediaDock(q)) { HeaderTimeoutMs = 200, ChunkTimeoutMs = 300 };
+        var up = new FrameUploader(new MediaDock(q)) { HeaderTimeoutMs = 200, ChunkTimeoutMs = 100 };
 
         Assert.Equal(UploadResult.Stalled, up.Upload(Frame(2)));
-        Assert.Equal([0u, 9u, 4009u], SetImages(t).Select(OffsetOf));
+        var offsets = SetImages(t).Select(OffsetOf).ToList();
+        Assert.Equal([0u, 9u, 59u, 109u, 159u], offsets); // header + one window of 4, nothing re-sent
     }
 
     [Fact]
     public void A_sleeping_dock_that_ignores_the_header_gets_nothing_else()
     {
         var t = new FakeTransport { Responder = req => req.Command == MediaDockCommands.SetImage ? null : FakeTransport.Ok(req) };
-        var q = new QLinkClient(t) { NudgeAfterMs = 0 };
+        var q = new QLinkClient(t);
 
         Assert.Equal(UploadResult.Stalled, new FrameUploader(new MediaDock(q)) { HeaderTimeoutMs = 100 }.Upload(Frame(2)));
         Assert.Single(SetImages(t));
-    }
-
-    [Fact]
-    public void Upload_rejects_wrong_sized_frames()
-    {
-        var q = new QLinkClient(new FakeTransport());
-        Assert.Throws<ArgumentException>(() => new FrameUploader(new MediaDock(q)).Upload(new byte[10]));
     }
 
     // ---------------------------------------------------------------- DockConfigGuard
@@ -248,6 +224,29 @@ public class DockTests : IDisposable
 
         Assert.False(h.Conn.Present(Frame(1))); // still backing off: nothing sent
         Assert.Equal(writes, SetImages(h.Transport).Count);
+    }
+
+    [Fact]
+    public void Unplugging_the_dock_mid_frame_keeps_the_keyboard_session()
+    {
+        var h = new Harness(_dir);
+        h.Conn.Tick();
+        h.Conn.Present(Frame(3));
+        bool unplugged = false;
+        var respond = h.Transport.Responder;
+        h.Transport.Responder = req => req switch
+        {
+            { Command: MediaDockCommands.SetImage } when unplugged => FakeTransport.Reply(req, [], status: (byte)QLinkStatus.InvalidState),
+            { Feature: Features.MediaDock, Command: MediaDockCommands.GetState } when unplugged => FakeTransport.Reply(req, [0, 0]),
+            _ => respond(req),
+        };
+
+        unplugged = true;
+        Assert.False(h.Conn.Present(Frame(4)));
+
+        Assert.Equal(DockState.NoMediaDock, h.Conn.State);
+        Assert.False(h.Transport.Disposed);
+        Assert.True(h.Conn.TryExecute(q => q.KeepAlive()));
     }
 
     [Fact]

@@ -144,6 +144,44 @@ public sealed class QLinkClient : IDisposable
 
     public static string StatusName(byte s) => s < StatusNames.Length ? StatusNames[s] : $"0x{s:X2}";
 
+    /// <summary>
+    /// Sends single-frame requests with up to <paramref name="window"/> in flight, in order, never repeated.
+    /// Returns (all replies OK, longest wait for any reply in ms).
+    /// </summary>
+    public (bool Ok, long MaxWait) SendWindowed(byte feat, byte cmd, IReadOnlyList<byte[]> payloads, int window, int timeoutMs)
+    {
+        if (!Allowed.Contains((feat, cmd))) throw new InvalidOperationException("not allowed");
+        var outstanding = new Queue<(byte Id, long SentAt)>();
+        var sw = Stopwatch.StartNew();
+        long maxWait = 0;
+        int next = 0;
+        while (next < payloads.Count || outstanding.Count > 0)
+        {
+            while (next < payloads.Count && outstanding.Count < window)
+            {
+                _reqId = (byte)(_reqId == 255 ? 1 : _reqId + 1);
+                _stream.Write(BuildFrame(feat, cmd, payloads[next++], 0, 1));
+                outstanding.Enqueue((_reqId, sw.ElapsedMilliseconds));
+            }
+            var (id, sentAt) = outstanding.Peek();
+            _stream.ReadTimeout = timeoutMs;
+            Frame f;
+            try { f = ReadFrame(); }
+            catch (TimeoutException) { Console.WriteLine($"    no reply for request {id} (part {next - outstanding.Count})"); return (false, maxWait); }
+            if (f.IsNotification) continue;
+            if (f.Feature != feat || f.Command != cmd) continue;
+            if (f.Status != 0) { Console.WriteLine($"    status {StatusName(f.Status)} for request {f.ReqId}"); return (false, maxWait); }
+            // Replies should come in order; drop everything up to the replied id.
+            while (outstanding.Count > 0)
+            {
+                var o = outstanding.Dequeue();
+                maxWait = Math.Max(maxWait, sw.ElapsedMilliseconds - o.SentAt);
+                if (o.Id == f.ReqId) break;
+            }
+        }
+        return (true, maxWait);
+    }
+
     /// <summary>Sends a request (split into continuation frames if needed) and returns the response data.</summary>
     public byte[] Send(byte feat, byte cmd, ReadOnlySpan<byte> data = default, int timeoutMs = 3000)
     {

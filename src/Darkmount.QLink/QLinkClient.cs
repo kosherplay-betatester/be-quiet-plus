@@ -24,25 +24,10 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
     /// <summary>Raised for every unsolicited device notification (on the thread that is reading).</summary>
     public event Action<Frame>? Notification;
 
-    /// <summary>
-    /// The firmware sometimes holds a finished reply until it receives more traffic. When no reply has
-    /// arrived after this many ms, a harmless media-dock GetState is sent to flush it (0 = never).
-    /// </summary>
-    public int NudgeAfterMs { get; set; } = 0;
-
-    /// <summary>Number of nudges sent so far (diagnostics).</summary>
-    public int Nudges { get; private set; }
-
-    /// <summary>What to send as a nudge. Only use <see cref="NudgeMode.RepeatRequest"/> for idempotent requests.</summary>
-    public NudgeMode NudgeMode { get; set; } = NudgeMode.RepeatRequest;
-
     byte NextRequestId() => _reqId = (byte)(_reqId == 255 ? 1 : _reqId + 1);
 
-    public byte[] Send(byte feature, byte command, ReadOnlySpan<byte> data = default, int timeoutMs = 3000) =>
-        Send(feature, command, data, timeoutMs, allowNudge: true);
-
-    /// <param name="allowNudge">False for writes that must never be repeated (e.g. an image header).</param>
-    public byte[] Send(byte feature, byte command, ReadOnlySpan<byte> data, int timeoutMs, bool allowNudge)
+    /// <summary>Sends one request (split into continuation frames if longer than 55 bytes) and waits for its reply.</summary>
+    public byte[] Send(byte feature, byte command, ReadOnlySpan<byte> data = default, int timeoutMs = 3000)
     {
         if (!CommandAllowlist.IsAllowed(feature, command))
             throw new InvalidOperationException($"Command {feature}/{command} is not on the safety allowlist.");
@@ -50,36 +35,15 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
         lock (_gate)
         {
             byte expected = NextRequestId();
-            Span<byte> accepted = stackalloc byte[16];
-            int acceptedCount = 0;
-            accepted[acceptedCount++] = expected;
             foreach (var packet in Frame.Build(Sid, expected, feature, command, data))
                 transport.Write(packet);
 
             var sw = Stopwatch.StartNew();
-            // Only image writes show the held-reply quirk, and only they are safe to repeat.
-            bool canNudge = allowNudge && NudgeAfterMs > 0 && ImageWriteHeaderLength(feature, command) > 0;
-            long nextNudge = canNudge ? NudgeAfterMs : long.MaxValue;
             while (true)
             {
-                Frame f;
-                try
-                {
-                    int left = Remaining(sw, timeoutMs);
-                    f = ReadFrame((int)Math.Clamp(nextNudge - sw.ElapsedMilliseconds, 1, left));
-                }
-                catch (TimeoutException) when (sw.ElapsedMilliseconds < timeoutMs)
-                {
-                    if (sw.ElapsedMilliseconds >= nextNudge)
-                    {
-                        byte? repeatId = Nudge(feature, command, data);
-                        if (repeatId is { } id && acceptedCount < accepted.Length) accepted[acceptedCount++] = id;
-                        nextNudge = sw.ElapsedMilliseconds + NudgeAfterMs;
-                    }
-                    continue;
-                }
+                var f = ReadFrame(Remaining(sw, timeoutMs));
                 if (f.IsNotification || f.IsContinuation) continue;
-                if (f.Feature != feature || f.Command != command || !accepted[..acceptedCount].Contains(f.ReqId)) continue;
+                if (f.Feature != feature || f.Command != command || f.ReqId != expected) continue;
                 if (f.Status != 0)
                     throw new QLinkException((QLinkStatus)f.Status, $"{feature}/{command} failed: {(QLinkStatus)f.Status}");
 
@@ -95,101 +59,50 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
         }
     }
 
+    /// <summary>Largest payload that fits in a single 64-byte frame.</summary>
+    public const int MaxSingleFramePayload = Frame.FirstFrameData;
+
     /// <summary>
-    /// Sends several requests of the same command in order, <b>never repeating one</b>. The firmware sometimes
-    /// holds a reply back until the next write arrives; when a reply is late by <paramref name="heldAfterMs"/>, the
-    /// next request is sent (at most two outstanding), which releases it. The dock counts image bytes, so a repeated
-    /// chunk would spoil the image — this is the only safe way to keep an image upload moving.
-    /// If only the very last reply stays held for <paramref name="finalGraceMs"/>, the sequence counts as delivered
-    /// (the next request of any kind releases it; its late reply is ignored by request id).
+    /// Sends many single-frame requests of one command in order, keeping up to <paramref name="window"/> in flight,
+    /// and <b>never repeating one</b>. This is how image data must be sent: large multi-frame writes make the
+    /// firmware hold replies back, and the dock rejects an image if any chunk arrives twice. Measured on the
+    /// Dark Mount: a 150 KB dock frame in ~1.4 s with window 4, with no held replies.
     /// </summary>
-    /// <exception cref="TimeoutException">No progress for <paramref name="timeoutMs"/>.</exception>
+    /// <exception cref="TimeoutException">A reply did not arrive within <paramref name="replyTimeoutMs"/>.</exception>
     /// <exception cref="QLinkException">The device rejected one of the requests.</exception>
-    public void SendSequence(byte feature, byte command, IReadOnlyList<byte[]> payloads,
-        int heldAfterMs = 250, int timeoutMs = 5000, int finalGraceMs = 1500)
+    public void SendWindowed(byte feature, byte command, IReadOnlyList<byte[]> payloads, int window = 4, int replyTimeoutMs = 3000)
     {
         if (!CommandAllowlist.IsAllowed(feature, command))
             throw new InvalidOperationException($"Command {feature}/{command} is not on the safety allowlist.");
+        if (payloads.Any(p => p.Length > MaxSingleFramePayload))
+            throw new ArgumentException($"Each payload must fit in one frame ({MaxSingleFramePayload} bytes).", nameof(payloads));
 
         lock (_gate)
         {
-            var outstanding = new List<byte>(2);
+            var outstanding = new Queue<byte>(window);
             int next = 0;
-            var sinceProgress = Stopwatch.StartNew();
-
-            void SendNext()
-            {
-                byte id = NextRequestId();
-                foreach (var packet in Frame.Build(Sid, id, feature, command, payloads[next++])) transport.Write(packet);
-                outstanding.Add(id);
-                sinceProgress.Restart();
-            }
-
+            var sinceReply = Stopwatch.StartNew();
             while (next < payloads.Count || outstanding.Count > 0)
             {
-                if (outstanding.Count == 0) { SendNext(); continue; }
-
-                bool moreToSend = next < payloads.Count;
-                long waitLimit = moreToSend && outstanding.Count < 2 ? heldAfterMs
-                    : moreToSend ? timeoutMs
-                    : outstanding.Count == 1 ? finalGraceMs : timeoutMs;
-                long left = waitLimit - sinceProgress.ElapsedMilliseconds;
-
-                Frame f;
-                try
+                while (next < payloads.Count && outstanding.Count < Math.Max(1, window))
                 {
-                    if (left <= 0) throw new TimeoutException();
-                    f = ReadFrame((int)left);
-                }
-                catch (TimeoutException)
-                {
-                    if (moreToSend && outstanding.Count < 2) { SendNext(); continue; } // releases the held reply
-                    if (!moreToSend && outstanding.Count == 1) { HeldFinalReplies++; return; } // last reply held: delivered
-                    throw new TimeoutException($"No reply for {timeoutMs} ms during a {payloads.Count}-part transfer (part {next}).");
+                    byte id = NextRequestId();
+                    transport.Write(Frame.Build(Sid, id, feature, command, payloads[next++])[0]);
+                    outstanding.Enqueue(id);
                 }
 
+                var f = ReadFrame(Remaining(sinceReply, replyTimeoutMs));
                 if (f.IsNotification || f.IsContinuation) continue;
                 if (f.Feature != feature || f.Command != command || !outstanding.Contains(f.ReqId)) continue;
                 if (f.Status != 0)
                     throw new QLinkException((QLinkStatus)f.Status, $"{feature}/{command} failed: {(QLinkStatus)f.Status}");
-                outstanding.Remove(f.ReqId);
-                sinceProgress.Restart();
+
+                // Replies arrive in order; anything older than this reply is implicitly done.
+                while (outstanding.Count > 0 && outstanding.Dequeue() != f.ReqId) { }
+                sinceReply.Restart();
             }
         }
     }
-
-    /// <summary>How often the last reply of a <see cref="SendSequence"/> stayed held (diagnostics).</summary>
-    public int HeldFinalReplies { get; private set; }
-
-    /// <summary>
-    /// Sends traffic whose only purpose is to flush a held reply. Returns the request id of a repeated
-    /// request (whose reply also counts as the answer), or null.
-    /// </summary>
-    byte? Nudge(byte feature, byte command, ReadOnlySpan<byte> data)
-    {
-        Nudges++;
-        byte id = NextRequestId();
-        var packets = NudgeMode switch
-        {
-            NudgeMode.RepeatRequest => Frame.Build(Sid, id, feature, command, data),
-            NudgeMode.TruncatedRepeat => Frame.Build(Sid, id, feature, command,
-                data[..Math.Min(ImageWriteHeaderLength(feature, command), data.Length)]),
-            _ => Frame.Build(Sid, id, Features.MediaDock, MediaDockCommands.GetState, []),
-        };
-        foreach (var packet in packets) transport.Write(packet);
-        return NudgeMode == NudgeMode.GetState ? null : id;
-    }
-
-    /// <summary>
-    /// Length of the addressing prefix of an image write (media dock: slot + offset = 5; numpad: key id + offset = 6),
-    /// or 0 for requests that must never be nudged or repeated.
-    /// </summary>
-    static int ImageWriteHeaderLength(byte feature, byte command) => (feature, command) switch
-    {
-        (Features.MediaDock, MediaDockCommands.SetImage) => 5,
-        (Features.Numpad, NumpadCommands.SetImage) => 6,
-        _ => 0,
-    };
 
     static int Remaining(Stopwatch sw, int timeoutMs)
     {

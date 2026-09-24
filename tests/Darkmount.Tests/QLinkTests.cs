@@ -145,123 +145,81 @@ public class QLinkTests
         Assert.Equal(payload, q.Send(Features.MediaDock, MediaDockCommands.GetImage, new byte[9]));
     }
 
-    /// <summary>Real firmware quirk: a finished reply is held until the host sends something else.</summary>
-    sealed class HoldingTransport : IHidTransport
+    static List<byte[]> Parts(int n, int size = 20) =>
+        Enumerable.Range(0, n).Select(i => { var p = new byte[size]; p[1] = (byte)i; p[2] = (byte)(i >> 8); return p; }).ToList();
+
+    [Fact]
+    public void Windowed_sends_every_part_exactly_once_in_order_as_single_frames()
+    {
+        var t = new FakeTransport();
+        using var q = new QLinkClient(t);
+
+        q.SendWindowed(Features.MediaDock, MediaDockCommands.SetImage, Parts(300), window: 4);
+
+        Assert.Equal(300, t.Requests.Count);
+        Assert.Equal(300, t.Written.Count); // one 64-byte packet per part, no continuation frames
+        Assert.Equal(Enumerable.Range(0, 300), t.Requests.Select(r => r.Data[1] | r.Data[2] << 8));
+    }
+
+    /// <summary>Replies only after <c>window</c> requests are in flight, like a device that answers in bursts.</summary>
+    sealed class BurstTransport(int burst) : IHidTransport
     {
         readonly FakeTransport _inner = new();
-        byte[]? _held;
-        public int SetImageWrites;
-        public int GetStateWrites;
+        readonly List<Frame> _pending = [];
+        public int MaxInFlight;
 
         public void Write(ReadOnlySpan<byte> packet)
         {
-            var f = Frame.Parse(packet);
-            if (_held is not null) { _inner.Enqueue(_held); _held = null; } // any new traffic flushes it
-            if (f.IsContinuation) return;
-            if (f.Command == MediaDockCommands.SetImage)
-            {
-                SetImageWrites++;
-                _held = FakeTransport.Reply(f, []).Single();
-            }
-            else
-            {
-                if (f.Command == MediaDockCommands.GetState) GetStateWrites++;
-                foreach (var r in FakeTransport.Reply(f, [1, 1])) _inner.Enqueue(r);
-            }
+            _pending.Add(Frame.Parse(packet));
+            MaxInFlight = Math.Max(MaxInFlight, _pending.Count);
+            if (_pending.Count < burst) return;
+            foreach (var f in _pending) foreach (var r in FakeTransport.Reply(f, [])) _inner.Enqueue(r);
+            _pending.Clear();
         }
 
-        public byte[] Read(int timeoutMs)
-        {
-            try { return _inner.Read(timeoutMs); }
-            catch (TimeoutException) { Thread.Sleep(Math.Min(timeoutMs, 20)); throw; }
-        }
-
+        public byte[] Read(int timeoutMs) => _inner.Read(timeoutMs);
         public void Dispose() { }
     }
 
     [Fact]
-    public void A_held_image_write_reply_is_flushed_by_repeating_the_write()
+    public void Windowed_keeps_at_most_the_window_in_flight()
     {
-        var t = new HoldingTransport();
-        using var q = new QLinkClient(t) { NudgeAfterMs = 50, NudgeMode = NudgeMode.RepeatRequest };
-
-        q.Send(Features.MediaDock, MediaDockCommands.SetImage, new byte[20], timeoutMs: 2000);
-
-        Assert.Equal(2, t.SetImageWrites);
-        Assert.Equal(0, t.GetStateWrites);
-        Assert.Equal(1, q.Nudges);
-    }
-
-    [Fact]
-    public void Sequence_releases_held_replies_by_sending_the_next_part_and_never_repeats()
-    {
-        var t = new HoldingTransport();
+        var t = new BurstTransport(burst: 4);
         using var q = new QLinkClient(t);
-        var parts = Enumerable.Range(0, 6).Select(i => new byte[] { 0, (byte)i, 0, 0, 0, 1, 2, 3 }).ToList();
 
-        q.SendSequence(Features.MediaDock, MediaDockCommands.SetImage, parts, heldAfterMs: 30, timeoutMs: 1000, finalGraceMs: 60);
+        q.SendWindowed(Features.MediaDock, MediaDockCommands.SetImage, Parts(40), window: 4);
 
-        Assert.Equal(6, t.SetImageWrites);   // each part exactly once
-        Assert.Equal(0, t.GetStateWrites);
-        Assert.Equal(1, q.HeldFinalReplies); // the last reply stayed held and was accepted
+        Assert.Equal(4, t.MaxInFlight);
     }
 
     [Fact]
-    public void Sequence_with_prompt_replies_sends_each_part_once()
+    public void Windowed_rejects_payloads_that_need_more_than_one_frame()
     {
-        var t = new FakeTransport();
-        using var q = new QLinkClient(t);
-        var parts = Enumerable.Range(0, 5).Select(i => new byte[] { 0, (byte)i, 0, 0, 0, 9 }).ToList();
+        using var q = new QLinkClient(new FakeTransport());
 
-        q.SendSequence(Features.MediaDock, MediaDockCommands.SetImage, parts, heldAfterMs: 30);
-
-        Assert.Equal(5, t.Requests.Count);
-        Assert.Equal(0, q.HeldFinalReplies);
+        Assert.Throws<ArgumentException>(() =>
+            q.SendWindowed(Features.MediaDock, MediaDockCommands.SetImage, [new byte[QLinkClient.MaxSingleFramePayload + 1]]));
     }
 
     [Fact]
-    public void Sequence_stops_on_a_rejected_part()
+    public void Windowed_stops_on_a_rejected_part()
     {
         var t = new FakeTransport { Responder = req => FakeTransport.Reply(req, [], status: 10) };
         using var q = new QLinkClient(t);
 
-        var ex = Assert.Throws<QLinkException>(() => q.SendSequence(Features.MediaDock, MediaDockCommands.SetImage,
-            [new byte[] { 0, 0, 0, 0, 0, 1 }, new byte[] { 0, 1, 0, 0, 0, 1 }], heldAfterMs: 30));
+        var ex = Assert.Throws<QLinkException>(() => q.SendWindowed(Features.MediaDock, MediaDockCommands.SetImage, Parts(10)));
         Assert.Equal(QLinkStatus.InvalidState, ex.Status);
     }
 
     [Fact]
-    public void Sequence_times_out_when_the_device_is_silent()
+    public void Windowed_times_out_on_a_silent_device_without_repeating()
     {
         var t = new FakeTransport { Responder = _ => null };
         using var q = new QLinkClient(t);
-        var parts = Enumerable.Range(0, 4).Select(i => new byte[] { 0, (byte)i, 0, 0, 0, 1 }).ToList();
 
-        Assert.Throws<TimeoutException>(() => q.SendSequence(Features.MediaDock, MediaDockCommands.SetImage, parts,
-            heldAfterMs: 20, timeoutMs: 100, finalGraceMs: 50));
-        Assert.Equal(2, t.Requests.Count); // at most two outstanding, never a repeat
-    }
-
-    [Fact]
-    public void GetState_nudge_mode_sends_a_status_request()
-    {
-        var t = new HoldingTransport();
-        using var q = new QLinkClient(t) { NudgeAfterMs = 50, NudgeMode = NudgeMode.GetState };
-
-        q.Send(Features.MediaDock, MediaDockCommands.SetImage, new byte[20], timeoutMs: 2000);
-
-        Assert.Equal(1, t.SetImageWrites);
-        Assert.Equal(1, t.GetStateWrites);
-    }
-
-    [Fact]
-    public void Non_image_requests_are_never_nudged_or_repeated()
-    {
-        var t = new FakeTransport { Responder = _ => null };
-        using var q = new QLinkClient(t) { NudgeAfterMs = 10 };
-
-        Assert.Throws<TimeoutException>(() => q.Send(Features.MediaDock, MediaDockCommands.SetConfig, new byte[9], timeoutMs: 100));
-        Assert.Single(t.Written);
+        Assert.Throws<TimeoutException>(() =>
+            q.SendWindowed(Features.MediaDock, MediaDockCommands.SetImage, Parts(10), window: 4, replyTimeoutMs: 50));
+        Assert.Equal(4, t.Requests.Count); // the window filled once; nothing re-sent
     }
 
     [Fact]

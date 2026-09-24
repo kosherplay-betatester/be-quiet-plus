@@ -51,17 +51,6 @@ public static class BindingCommands
     public const byte GetBindings = 1, SetBinding = 2, ClearBinding = 3, GetConfig = 4, SetConfig = 5;
 }
 
-/// <summary>How <see cref="QLinkClient"/> flushes a reply the firmware is holding back.</summary>
-public enum NudgeMode
-{
-    /// <summary>Send a media-dock GetState (does not flush held image-write replies).</summary>
-    GetState,
-    /// <summary>Send the same request again with a new id; either reply is accepted (idempotent requests only).</summary>
-    RepeatRequest,
-    /// <summary>Send the same command with only the first 5 payload bytes (slot + offset, no pixels).</summary>
-    TruncatedRepeat,
-}
-
 public enum QLinkStatus : byte
 {
     Success = 0, InvalidSessionId, InvalidFeatureId, InvalidCommandId, InvalidRequestId, InvalidParameter, Timeout,

@@ -227,6 +227,117 @@ public static class Sequence
         }
     }
 
+    /// <summary>
+    /// The web app's method: header, then 49-byte single-packet chunks, each waiting for its reply (no repeats).
+    /// Reports slow replies and timeouts, then shows the frame via the screensaver.
+    /// </summary>
+    public static void WebSafe(QLinkClient q, int frames, int chunk)
+    {
+        var original = ConfigGuard.Original(q);
+        var clock = Stopwatch.StartNew();
+        void Log(string s) => Console.WriteLine($"[{clock.ElapsedMilliseconds / 1000.0,5:F1}s] {s}");
+        SKColor[] colours = [SKColors.DarkRed, SKColors.DarkGreen, SKColors.DarkBlue, SKColors.DarkGoldenrod];
+        string[] names = ["RED", "GREEN", "BLUE", "YELLOW"];
+        try
+        {
+            using var bmp = new SKBitmap(W, H, SKColorType.Rgba8888, SKAlphaType.Opaque);
+            using var cv = new SKCanvas(bmp);
+            using var font = new SKFont(SKTypeface.FromFamilyName("Segoe UI", SKFontStyle.Bold), 64);
+            using var ink = new SKPaint { Color = SKColors.White, IsAntialias = true };
+            for (int f = 0; f < frames; f++)
+            {
+                cv.Clear(colours[f % colours.Length]);
+                cv.DrawText($"{f + 1} {names[f % names.Length]}", W / 2f, H / 2f + 22, SKTextAlign.Center, font, ink);
+                cv.Flush();
+                var px = Formats.ToRgb565(bmp);
+                var sw = Stopwatch.StartNew();
+                int slow = 0, requests = 0;
+                long worst = 0;
+                var hdr = new byte[5 + 9];
+                BinaryPrimitives.WriteUInt32LittleEndian(hdr.AsSpan(5), (uint)(px.Length + 9));
+                BinaryPrimitives.WriteUInt16LittleEndian(hdr.AsSpan(9), W);
+                BinaryPrimitives.WriteUInt16LittleEndian(hdr.AsSpan(11), H);
+                hdr[13] = Formats.Rgb565;
+                void Timed(byte[] payload, int offset)
+                {
+                    var t = Stopwatch.StartNew();
+                    try { q.Send(QLinkClient.FeatMediaDock, 7, payload, timeoutMs: 8000); }
+                    catch (TimeoutException) { Log($"  TIMEOUT at offset {offset} after {requests} requests"); throw; }
+                    requests++;
+                    worst = Math.Max(worst, t.ElapsedMilliseconds);
+                    if (t.ElapsedMilliseconds > 300) { slow++; Log($"  slow reply at offset {offset}: {t.ElapsedMilliseconds} ms"); }
+                }
+                Timed(hdr, -1);
+                for (int c = 0; c < px.Length; c += chunk)
+                {
+                    var buf = new byte[5 + Math.Min(chunk, px.Length - c)];
+                    BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(1), (uint)(9 + c));
+                    px.AsSpan(c, buf.Length - 5).CopyTo(buf.AsSpan(5));
+                    Timed(buf, c);
+                }
+                if (f == 0) q.Send(QLinkClient.FeatMediaDock, 3, SetIdle(ConfigGuard.Quick(original), 1));
+                Log($"frame {f + 1} ({names[f % names.Length]}): {requests} requests in {sw.ElapsedMilliseconds} ms, {slow} slow, worst {worst} ms");
+                for (int i = 0; i < 4; i++) { q.KeepAlive(); q.Pump(1000); }
+            }
+        }
+        finally
+        {
+            q.Pump(300);
+            q.Send(QLinkClient.FeatMediaDock, 3, original, timeoutMs: 8000);
+            Log("Restored original dock config.");
+        }
+    }
+
+    /// <summary>Single-packet chunks with up to <paramref name="window"/> requests in flight (in order, never repeated).</summary>
+    public static void Windowed(QLinkClient q, int frames, int window)
+    {
+        var original = ConfigGuard.Original(q);
+        var clock = Stopwatch.StartNew();
+        void Log(string s) => Console.WriteLine($"[{clock.ElapsedMilliseconds / 1000.0,5:F1}s] {s}");
+        SKColor[] colours = [SKColors.DarkRed, SKColors.DarkGreen, SKColors.DarkBlue, SKColors.DarkGoldenrod];
+        string[] names = ["RED", "GREEN", "BLUE", "YELLOW"];
+        try
+        {
+            using var bmp = new SKBitmap(W, H, SKColorType.Rgba8888, SKAlphaType.Opaque);
+            using var cv = new SKCanvas(bmp);
+            using var font = new SKFont(SKTypeface.FromFamilyName("Segoe UI", SKFontStyle.Bold), 64);
+            using var ink = new SKPaint { Color = SKColors.White, IsAntialias = true };
+            for (int f = 0; f < frames; f++)
+            {
+                cv.Clear(colours[f % colours.Length]);
+                cv.DrawText($"{f + 1} {names[f % names.Length]} w{window}", W / 2f, H / 2f + 22, SKTextAlign.Center, font, ink);
+                cv.Flush();
+                var px = Formats.ToRgb565(bmp);
+                var hdr = new byte[5 + 9];
+                BinaryPrimitives.WriteUInt32LittleEndian(hdr.AsSpan(5), (uint)(px.Length + 9));
+                BinaryPrimitives.WriteUInt16LittleEndian(hdr.AsSpan(9), W);
+                BinaryPrimitives.WriteUInt16LittleEndian(hdr.AsSpan(11), H);
+                hdr[13] = Formats.Rgb565;
+                var sw = Stopwatch.StartNew();
+                q.Send(QLinkClient.FeatMediaDock, 7, hdr, timeoutMs: 8000);
+                long header = sw.ElapsedMilliseconds;
+                var chunks = new List<byte[]>();
+                for (int c = 0; c < px.Length; c += 50)
+                {
+                    var buf = new byte[5 + Math.Min(50, px.Length - c)];
+                    BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(1), (uint)(9 + c));
+                    px.AsSpan(c, buf.Length - 5).CopyTo(buf.AsSpan(5));
+                    chunks.Add(buf);
+                }
+                var (ok, maxWait) = q.SendWindowed(QLinkClient.FeatMediaDock, 7, chunks, window, 3000);
+                if (f == 0) q.Send(QLinkClient.FeatMediaDock, 3, SetIdle(ConfigGuard.Quick(original), 1));
+                Log($"frame {f + 1} ({names[f % names.Length]}, window {window}): {(ok ? "OK" : "FAILED")} in {sw.ElapsedMilliseconds} ms (header {header} ms, worst reply wait {maxWait} ms)");
+                for (int i = 0; i < 4; i++) { q.KeepAlive(); q.Pump(1000); }
+            }
+        }
+        finally
+        {
+            q.Pump(300);
+            q.Send(QLinkClient.FeatMediaDock, 3, original, timeoutMs: 8000);
+            Log("Restored original dock config.");
+        }
+    }
+
     static byte[] SetIdle(byte[] config, int seconds)
     {
         var c = (byte[])config.Clone();
