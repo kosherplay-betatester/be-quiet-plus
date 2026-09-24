@@ -165,7 +165,7 @@ public sealed class MacrosPage : Ui.Page
     {
         if (Current is null) { _status.Text = "Create a macro first."; return; }
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Press a key or shortcut…", null, (_, _) => AddStep(KeyCaptureDialog.Capture(FindForm())));
+        menu.Items.Add("Press a key or shortcut…", null, (_, _) => AddStep(KeyCaptureDialog.Ask(FindForm())));
         menu.Items.Add("Type text…", null, (_, _) => AddStep(Prompt("Text to type") is { Length: > 0 } t ? new TypeTextStep(t) : null));
         menu.Items.Add("Wait…", null, (_, _) => AddStep(int.TryParse(Prompt("Milliseconds to wait", "500"), out int ms) && ms > 0 ? new DelayStep(Math.Min(ms, 600000)) : null));
         menu.Items.Add("Mouse click (left)", null, (_, _) => AddStep(new MouseClickStep(MacroMouseButton.Left)));
@@ -337,7 +337,7 @@ sealed class KeyCaptureDialog : Form
         return true;
     }
 
-    public static KeyTapStep? Capture(IWin32Window? owner)
+    public static KeyTapStep? Ask(IWin32Window? owner)
     {
         using var d = new KeyCaptureDialog();
         return d.ShowDialog(owner) == DialogResult.OK ? d._result : null;
