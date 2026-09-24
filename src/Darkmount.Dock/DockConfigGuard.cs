@@ -53,7 +53,10 @@ public sealed class DockConfigGuard(string backupPath)
     /// <summary>This app (and the test tools) use a short idle delay and a never-off screen; users never do.</summary>
     public static bool LooksLikeAppConfig(DockConfig c) => c.IdleSeconds < 5 || c.ScreenOffSeconds == 0;
 
-    /// <summary>Config while the app drives the dock: show our image after the idle delay, keep the screen on.</summary>
-    public static DockConfig Running(DockConfig original, int idleSeconds) =>
-        original with { Screensaver = ScreensaverMode.Image, IdleSeconds = Math.Clamp(idleSeconds, 1, 2), ScreenOffSeconds = 0 };
+    /// <summary>
+    /// Config while the app drives the dock: show our image after 1 s idle, keep the screen on. Every uploaded
+    /// image counts as dock activity, so any longer delay keeps the dock on its menu (verified on hardware).
+    /// </summary>
+    public static DockConfig Running(DockConfig original, int idleSeconds = 1) =>
+        original with { Screensaver = ScreensaverMode.Image, IdleSeconds = 1, ScreenOffSeconds = 0 };
 }

@@ -32,10 +32,7 @@ public sealed class TrayApp : ApplicationContext
         _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
         _settings = SettingsStore.Load(SettingsStore.DefaultPath);
 
-        _dock = new DockConnection(OpenKeyboard, new DockConfigGuard(DockConfigGuard.DefaultPath), IoCenterDetector.IsRunning)
-        {
-            IdleSeconds = _settings.DockIdleSeconds,
-        };
+        _dock = new DockConnection(OpenKeyboard, new DockConfigGuard(DockConfigGuard.DefaultPath), IoCenterDetector.IsRunning);
         _dock.Log += Log.Write;
         _dock.StateChanged += s => _ui.Post(_ => OnDockState(s), null);
 
@@ -184,7 +181,6 @@ public sealed class TrayApp : ApplicationContext
                               != System.Text.Json.JsonSerializer.Serialize(_settings.Sensors);
         _settings = updated;
         SaveSettings();
-        _dock.IdleSeconds = updated.DockIdleSeconds;
         if (!_hotkey.Register(updated.Hotkey))
             _tray.ShowBalloonTip(4000, "Darkmount Hub", $"The hotkey '{updated.Hotkey}' is not available.", ToolTipIcon.Warning);
         TrySetAutostart(updated.StartWithWindows);

@@ -35,10 +35,7 @@ public sealed class AppSettings
     public AnimationKind AnimationKind { get; set; } = AnimationKind.Plasma;
     public string? AnimationPath { get; set; }
 
-    /// <summary>
-    /// Idle delay the dock uses while the app drives it. Must stay 1 s: every new image counts as activity for
-    /// the dock, so with a longer delay and continuous refreshes the dock would never show the dashboard.
-    /// </summary>
+    /// <summary>Kept for old settings files; the dock idle delay is always 1 s while the app drives the dock.</summary>
     public int DockIdleSeconds { get; set; } = 1;
 
     public int RefreshMs { get; set; } = 2000;

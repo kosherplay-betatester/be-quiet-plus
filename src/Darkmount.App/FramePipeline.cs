@@ -35,6 +35,9 @@ public sealed class FramePipeline : IDisposable
     public ScreenKind CurrentScreen => _switcher.Current;
     public AutoSwitcher Switcher => _switcher;
 
+    /// <summary>Minimum pause after each upload (the colour tests that displayed correctly had ~0.35 s).</summary>
+    const int MinQuietGapMs = 400;
+
     public FramePipeline(DockConnection dock, Func<AppSettings> settings)
     {
         _dock = dock;
@@ -57,9 +60,11 @@ public sealed class FramePipeline : IDisposable
             try { RenderAndPresent(); }
             catch (Exception e) { Log.Write($"Frame pipeline error: {e}"); }
 
-            // Wait for the next frame, checking for new alerts every 500 ms so they show immediately.
+            // Wait for the next frame, checking for new alerts every 500 ms so they show immediately. Always leave
+            // a short quiet gap after an upload so the dock can switch to (or stay on) our screen.
             int refresh = Math.Clamp(_settings().RefreshMs, 1500, 60000);
-            while (!_stop && started.ElapsedMilliseconds < refresh)
+            var gap = System.Diagnostics.Stopwatch.StartNew();
+            while (!_stop && (started.ElapsedMilliseconds < refresh || gap.ElapsedMilliseconds < MinQuietGapMs))
             {
                 if (_wake.WaitOne(500)) break;
                 if (CheckForNewAlert()) break;
