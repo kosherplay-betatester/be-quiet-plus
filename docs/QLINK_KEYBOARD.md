@@ -954,3 +954,32 @@ Format: `bytes 0..LEN` | zero padding | CRC-16/MODBUS (LE) at [62..63]. REQUEST_
 ### USB_DEVICE GetPollingRate
 06 00 02 00 26 06 01 | 00 x55 | crc 17 80
 ```
+
+## Appendix B — IO Center desktop profile files (read by OverMount's importer)
+
+Found on a real install (IO Center 2026, Windows). Only read, never written.
+
+* **Where:** `%APPDATA%\be quiet!\IO Center\profiles\{guid}.ioprofile` (UTF-8 JSON, cereal format). An *exported*
+  `.ioprofile` is a **zip** with the same JSON as entry `data` plus `assets/numpad/{guid}` pictures. Installed profiles
+  point at `%APPDATA%\be quiet!\IO Center\assets\numpad\{guid}.ioasset` (640×640 **WebP**) with `file:///` URLs and a
+  normalised `cropRect`.
+* **Shape:** `data.name`, `data.linkedAppPath` (auto-switch app), `data.properties[]` with `polymorphic_name`
+  (`LightingsProperty`, `KeyBindingsProperty`, `NumpadProperty`, `MacrosProperty`, `MediaDockProperty`,
+  `CoolingStudioProperty`), each `ptr_wrapper.data.subs[]` keyed by device name ("Dark Mount").
+* **Lighting:** `enabled`, `mode` ("General" = on-board effect, "Custom" = host-driven realtime layers),
+  `generalModeData.data[0]` and `customModeData.layers[]` (`name`, `assignments[]`, `effectData`). Layer 0 is the top.
+  Effects are a std::variant `impl.index` in this order (from the RTTI table in IO_Center.exe, confirmed by samples):
+  0 Breathing, 1 ColorWave, 2 Gif, 3 Image, 4 Matrix, 5 MulticolorStatic, 6 Reactive, 7 ScreenCapture, 8 ScreenSync,
+  9 Sensor, 10 Static, 11 Tornado, 12 Video, 13 Off, 14 Ripple. Fields: `colorMode` (Single/Dual/Gradient),
+  `singleColor`, `dualColors.first/second`, `gradient[{first: "#AARRGGBB", second: position}]`, `speed` 0–100,
+  `brightness` 0–100, `direction`, `color` (Static).
+* **Assignments:** keys by HID-style names (`Key_A`, `Key_GraveAccentAndTilde`, `Key_LeftGui`, `Key_NumpadImage0`…) and
+  edge LEDs as `Led_{Keyboard|Numpad}{Top|Right|Bottom|Left}{n}`: Top/Bottom 21 (numpad 5) between the corners,
+  Right/Left 11 including both corners. The firmware numbers each ring clockwise from its top-left corner (LampArray
+  InputBinding 106–169 keyboard, 170–201 numpad), so Top n = edge n+1, Right n = 22+n, Bottom n = 33+n, Left n = 54+n
+  (Left 11 = edge 1); numpad likewise from edge 65. IO Center leaves out the two sides where keyboard and numpad touch.
+* **Bindings:** `layerBindingsData[]` keyed "Common" / "Fn1"; variant order 0 Default, 1 Disabled, 2 StandardKey,
+  3 SpecialKey, 4 Media (`action`: PlayPause, Mute, PrevTrack, NextTrack, IncreaseVolume, DecreaseVolume…), 5 MouseButton,
+  6 MouseScroll, 7 OpenFile (`url`), 8 OpenFolder, 9 OpenBrowser, 10 WindowsShortcut (`action` names match
+  `WindowsShortcutAction`), 11 Profile, 12 Backlight (`action`, `effect`), 13 Macro. Dock buttons are `Key_Mute`,
+  `Key_PlayPause`, `Key_ScanPreviousTrack`, `Key_ScanNextTrack`.
