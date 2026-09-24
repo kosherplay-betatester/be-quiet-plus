@@ -76,6 +76,7 @@ public sealed class SettingsForm : Form
         AddPage("Sensors", SensorsPage());
         if (keyboard is not null)
         {
+            AddPage("Lighting", new Pages.LightingPage(keyboard));
             AddPage("Display keys", new Pages.DisplayKeysPage(keyboard));
         }
         if (dock is not null) AddPage("Dock settings", new Pages.DockSettingsPage(dock));

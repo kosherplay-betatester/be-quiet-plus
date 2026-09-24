@@ -196,12 +196,16 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
                 _stalls = 0;
                 FramesUploaded++;
                 LastUploadDuration = _uploader.LastDuration;
+                if (FramesUploaded <= 5 || FramesUploaded % 30 == 0)
+                    Log?.Invoke($"Frame {FramesUploaded} uploaded in {LastUploadDuration.TotalMilliseconds:F0} ms");
                 _lastTraffic = DateTime.UtcNow;
                 ShowingDockDefault = false;
                 if (_needsRunningConfig)
                 {
                     // Order matters: enable the screensaver only after a complete image exists.
-                    _dock!.SetConfig(DockConfigGuard.Running(_original!, IdleSeconds));
+                    var running = DockConfigGuard.Running(_original!, IdleSeconds);
+                    _dock!.SetConfig(running);
+                    Log?.Invoke($"Dock set to show our screen after {running.IdleSeconds} s idle ({Convert.ToHexString(running.ToBytes())})");
                     _needsRunningConfig = false;
                     SetState(DockState.Ready);
                 }

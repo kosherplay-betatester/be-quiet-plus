@@ -118,7 +118,8 @@ public sealed class DisplayKeys(QLinkClient q)
         c.Translate(dst.Width / 2f, dst.Height / 2f);
         c.RotateDegrees(degrees);
         c.Translate(-src.Width / 2f, -src.Height / 2f);
-        c.DrawBitmap(src, 0, 0);
+        using var image = SKImage.FromBitmap(src);
+        c.DrawImage(image, 0, 0, new SKSamplingOptions(SKFilterMode.Nearest));
         return dst;
     }
 }
