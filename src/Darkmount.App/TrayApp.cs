@@ -405,7 +405,9 @@ public sealed class TrayApp : ApplicationContext
             await _keyboard.Run(q =>
             {
                 var lighting = new Darkmount.Keyboard.Lighting(q);
-                if (lighting.GetMode() == Darkmount.Keyboard.LightingMode.Realtime) lighting.SetMode(Darkmount.Keyboard.LightingMode.General);
+                if (lighting.GetMode() != Darkmount.Keyboard.LightingMode.Realtime) return;
+                KeyboardBackupGuard.EnsureBackup(q);
+                lighting.SetMode(Darkmount.Keyboard.LightingMode.General);
             });
         }
         catch (Exception e) when (e is KeyboardUnavailableException or IOException or TimeoutException or QLinkException)

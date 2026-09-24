@@ -96,6 +96,7 @@ public sealed class DisplayKeysPage : Ui.Page
         {
             await _keyboard.Run(q =>
             {
+                KeyboardBackupGuard.EnsureBackup(q); // the full original setup, before any change (incl. pictures)
                 var keys = new DisplayKeys(q);
                 DisplayKeyBackup.BackupOnce(keys); // originals first, never overwritten
                 keys.WriteStoredJpeg(index, jpeg);
@@ -120,7 +121,11 @@ public sealed class DisplayKeysPage : Ui.Page
         _status.Text = "Restoring the original images…";
         try
         {
-            int n = await _keyboard.Run(q => DisplayKeyBackup.Restore(new DisplayKeys(q)));
+            int n = await _keyboard.Run(q =>
+            {
+                KeyboardBackupGuard.EnsureBackup(q);
+                return DisplayKeyBackup.Restore(new DisplayKeys(q));
+            });
             foreach (var i in Enumerable.Range(0, DisplayKeys.Count))
             {
                 var path = Path.Combine(DisplayKeyBackup.DefaultFolder, $"key{i + 1}.jpg");
