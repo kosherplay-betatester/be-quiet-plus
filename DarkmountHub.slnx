@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Darkmount.App/Darkmount.App.csproj" />
     <Project Path="src/Darkmount.Dock/Darkmount.Dock.csproj" />
+    <Project Path="src/Darkmount.Keyboard/Darkmount.Keyboard.csproj" />
     <Project Path="src/Darkmount.QLink/Darkmount.QLink.csproj" />
     <Project Path="src/Darkmount.Screens/Darkmount.Screens.csproj" />
     <Project Path="src/Darkmount.Sensors/Darkmount.Sensors.csproj" />

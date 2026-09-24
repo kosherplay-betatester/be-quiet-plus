@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Darkmount.App\Darkmount.App.csproj" />
+    <ProjectReference Include="..\..\src\Darkmount.Keyboard\Darkmount.Keyboard.csproj" />
   </ItemGroup>
 
 </Project>

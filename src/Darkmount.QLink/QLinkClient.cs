@@ -54,7 +54,7 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
 
             var sw = Stopwatch.StartNew();
             // Only image writes show the held-reply quirk, and only they are safe to repeat.
-            bool canNudge = NudgeAfterMs > 0 && feature == Features.MediaDock && command is MediaDockCommands.SetImage;
+            bool canNudge = NudgeAfterMs > 0 && ImageWriteHeaderLength(feature, command) > 0;
             long nextNudge = canNudge ? NudgeAfterMs : long.MaxValue;
             while (true)
             {
@@ -102,12 +102,24 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
         var packets = NudgeMode switch
         {
             NudgeMode.RepeatRequest => Frame.Build(Sid, id, feature, command, data),
-            NudgeMode.TruncatedRepeat => Frame.Build(Sid, id, feature, command, data[..Math.Min(5, data.Length)]),
+            NudgeMode.TruncatedRepeat => Frame.Build(Sid, id, feature, command,
+                data[..Math.Min(ImageWriteHeaderLength(feature, command), data.Length)]),
             _ => Frame.Build(Sid, id, Features.MediaDock, MediaDockCommands.GetState, []),
         };
         foreach (var packet in packets) transport.Write(packet);
         return NudgeMode == NudgeMode.GetState ? null : id;
     }
+
+    /// <summary>
+    /// Length of the addressing prefix of an image write (media dock: slot + offset = 5; numpad: key id + offset = 6),
+    /// or 0 for requests that must never be nudged or repeated.
+    /// </summary>
+    static int ImageWriteHeaderLength(byte feature, byte command) => (feature, command) switch
+    {
+        (Features.MediaDock, MediaDockCommands.SetImage) => 5,
+        (Features.Numpad, NumpadCommands.SetImage) => 6,
+        _ => 0,
+    };
 
     static int Remaining(Stopwatch sw, int timeoutMs)
     {

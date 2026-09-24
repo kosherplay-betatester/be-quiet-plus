@@ -4,5 +4,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Darkmount.Dock\Darkmount.Dock.csproj" />
+    <ProjectReference Include="..\..\src\Darkmount.Keyboard\Darkmount.Keyboard.csproj" />
   </ItemGroup>
 </Project>

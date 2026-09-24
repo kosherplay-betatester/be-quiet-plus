@@ -18,6 +18,27 @@ using var q = new QLinkClient(t) { NudgeAfterMs = nudgeMs, NudgeMode = mode };
 q.Pump(200);
 q.OpenSession();
 Console.WriteLine($"Session {q.Sid}, active {q.IsActive}; nudge {mode} after {nudgeMs} ms; chunk {chunk}");
+if (args.Contains("--readkeys"))
+{
+    // Read-only: back up the eight display-key images and save upright PNG previews.
+    var keys = new Darkmount.Keyboard.DisplayKeys(q);
+    Console.WriteLine($"Numpad connected: {keys.IsConnected()}");
+    var sw2 = Stopwatch.StartNew();
+    int saved = Darkmount.Keyboard.DisplayKeyBackup.BackupOnce(keys);
+    Console.WriteLine($"Backup: {saved} key image(s) saved to {Darkmount.Keyboard.DisplayKeyBackup.DefaultFolder} in {sw2.ElapsedMilliseconds} ms");
+    var outDir = Arg("--out", Path.Combine(Path.GetTempPath(), "dmh-keys"));
+    Directory.CreateDirectory(outDir);
+    foreach (var file in Directory.GetFiles(Darkmount.Keyboard.DisplayKeyBackup.DefaultFolder, "key*.jpg"))
+    {
+        using var upright = Darkmount.Keyboard.DisplayKeys.DecodeStored(File.ReadAllBytes(file));
+        if (upright is null) continue;
+        using var png = upright.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+        File.WriteAllBytes(Path.Combine(outDir, Path.GetFileNameWithoutExtension(file) + ".png"), png.ToArray());
+    }
+    Console.WriteLine($"Previews in {outDir}");
+    return 0;
+}
+
 var dock = new MediaDock(q);
 var up = new FrameUploader(dock) { ChunkSize = chunk };
 up.Log += m => Console.WriteLine("  " + m);
