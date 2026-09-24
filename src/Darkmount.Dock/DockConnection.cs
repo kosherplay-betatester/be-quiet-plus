@@ -146,6 +146,18 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
     /// <summary>True while the dock is not answering image uploads (usually asleep: press a dock button).</summary>
     public bool DockUnresponsive => _stalls > 0;
 
+    /// <summary>Frames uploaded successfully since start.</summary>
+    public int FramesUploaded { get; private set; }
+
+    /// <summary>Frames abandoned because the dock stopped answering.</summary>
+    public int FramesStalled { get; private set; }
+
+    /// <summary>Duration of the last successful upload.</summary>
+    public TimeSpan LastUploadDuration { get; private set; }
+
+    /// <summary>Nudges sent to release held replies in the current session.</summary>
+    public int Nudges => _client?.Nudges ?? 0;
+
     /// <summary>Uploads a full RGB565 frame. Returns false when the keyboard is not available or backing off.</summary>
     public bool Present(byte[] rgb565)
     {
@@ -159,6 +171,7 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
                 {
                     // Never hammer a busy or sleeping dock: back off 5, 10, 20, then 30 s between attempts.
                     _stalls++;
+                    FramesStalled++;
                     var wait = TimeSpan.FromSeconds(Math.Min(30, 5 << Math.Min(_stalls - 1, 3)));
                     _resumeAt = DateTime.UtcNow + wait;
                     _client!.Pump(300); // swallow late replies
@@ -167,6 +180,8 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
                 }
                 if (_stalls > 0) Log?.Invoke($"Dock responsive again after {_stalls} stalled frame(s)");
                 _stalls = 0;
+                FramesUploaded++;
+                LastUploadDuration = _uploader.LastDuration;
                 _lastTraffic = DateTime.UtcNow;
                 if (_needsRunningConfig)
                 {

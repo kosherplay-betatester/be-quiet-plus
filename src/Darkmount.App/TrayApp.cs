@@ -146,8 +146,34 @@ public sealed class TrayApp : ApplicationContext
     void ShowSettings()
     {
         if (_settingsForm is { IsDisposed: false }) { _settingsForm.Activate(); return; }
-        _settingsForm = new SettingsForm(_settings, ApplySettings);
+        _settingsForm = new SettingsForm(_settings, ApplySettings, StatusReport);
         _settingsForm.Show();
+    }
+
+    string StatusReport()
+    {
+        var s = _pipeline.LastSnapshot;
+        static string V(double? v, string unit, string fmt = "F0") => v is { } x ? x.ToString(fmt) + unit : "--";
+        var lines = new List<string>
+        {
+            $"Dock           {_dock.State}{(_dock.DockUnresponsive ? " (not responding: press a dock button)" : "")}",
+            $"Screen         {_pipeline.CurrentScreen}",
+            $"Frames         {_dock.FramesUploaded} uploaded, {_dock.FramesStalled} stalled",
+            $"Last upload    {(_dock.LastUploadDuration.TotalMilliseconds > 0 ? $"{_dock.LastUploadDuration.TotalMilliseconds:F0} ms" : "--")}",
+            $"Nudges         {_dock.Nudges} (this session)",
+            "",
+            $"CPU            {V(s?.CpuTemp, " °C")}   {V(s?.CpuLoad, " %")}   {V(s?.CpuPower, " W")}",
+            $"GPU            {V(s?.GpuTemp, " °C")}   {V(s?.GpuLoad, " %")}   {V(s?.GpuPower, " W")}",
+            $"RAM            {V(s?.RamUsedMb / 1024, " GB", "F1")} / {V(s?.RamTotalMb / 1024, " GB", "F1")}",
+            $"VRAM           {V(s?.VramUsedMb / 1024, " GB", "F1")} / {V(s?.VramTotalMb / 1024, " GB", "F1")}",
+            $"Game           {s?.GameName ?? "none"}   FPS {V(s?.Fps, "")}   {s?.FpsLowLabel} {V(s?.FpsLow, "")}",
+        };
+        if (s?.Hints is { Count: > 0 } hints)
+        {
+            lines.Add("");
+            lines.AddRange(hints.Select(h => "• " + h));
+        }
+        return string.Join(Environment.NewLine, lines);
     }
 
     /// <summary>Applies settings saved in the settings window.</summary>

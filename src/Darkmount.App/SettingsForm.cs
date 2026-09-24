@@ -36,9 +36,15 @@ public sealed class SettingsForm : Form
     readonly NumericUpDown _gpuIndex = Ui.Number(0, 8);
     readonly TextBox _labels = new() { Multiline = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9.5f), Size = new Size(620, 300) };
 
-    public SettingsForm(AppSettings current, Action<AppSettings> apply)
+    readonly Func<string>? _status2;
+    readonly Label _statusText = new() { AutoSize = true, Font = new Font("Consolas", 10.5f), ForeColor = Ui.Text, Margin = new Padding(0, 4, 0, 0) };
+    readonly System.Windows.Forms.Timer _statusTimer = new() { Interval = 1000 };
+
+    /// <param name="status">Returns a multi-line status report for the Status page (null hides the page).</param>
+    public SettingsForm(AppSettings current, Action<AppSettings> apply, Func<string>? status = null)
     {
         _apply = apply;
+        _status2 = status;
         _edit = Clone(current);
 
         Text = "Darkmount Hub";
@@ -67,6 +73,15 @@ public sealed class SettingsForm : Form
         AddPage("Animation", AnimationPage());
         AddPage("Alerts", AlertsPage());
         AddPage("Sensors", SensorsPage());
+        if (_status2 is not null)
+        {
+            var sp = new Ui.Page("Status", "Live diagnostics: connection, uploads and sensor readings.");
+            sp.AddFull(_statusText);
+            AddPage("Status", sp);
+            _statusTimer.Tick += (_, _) => _statusText.Text = _status2();
+            _statusTimer.Start();
+            _statusText.Text = _status2();
+        }
 
         Controls.Add(_content);
         Controls.Add(footer);
@@ -276,6 +291,7 @@ public sealed class SettingsForm : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
+        _statusTimer.Dispose();
         _preview.Image?.Dispose();
         base.OnFormClosed(e);
     }
