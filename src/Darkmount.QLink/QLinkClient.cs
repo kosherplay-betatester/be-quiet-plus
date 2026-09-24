@@ -28,17 +28,21 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
     /// The firmware sometimes holds a finished reply until it receives more traffic. When no reply has
     /// arrived after this many ms, a harmless media-dock GetState is sent to flush it (0 = never).
     /// </summary>
-    public int NudgeAfterMs { get; set; } = 200;
+    public int NudgeAfterMs { get; set; } = 300;
 
     /// <summary>Number of nudges sent so far (diagnostics).</summary>
     public int Nudges { get; private set; }
 
     /// <summary>What to send as a nudge. Only use <see cref="NudgeMode.RepeatRequest"/> for idempotent requests.</summary>
-    public NudgeMode NudgeMode { get; set; } = NudgeMode.TruncatedRepeat;
+    public NudgeMode NudgeMode { get; set; } = NudgeMode.RepeatRequest;
 
     byte NextRequestId() => _reqId = (byte)(_reqId == 255 ? 1 : _reqId + 1);
 
-    public byte[] Send(byte feature, byte command, ReadOnlySpan<byte> data = default, int timeoutMs = 3000)
+    public byte[] Send(byte feature, byte command, ReadOnlySpan<byte> data = default, int timeoutMs = 3000) =>
+        Send(feature, command, data, timeoutMs, allowNudge: true);
+
+    /// <param name="allowNudge">False for writes that must never be repeated (e.g. an image header).</param>
+    public byte[] Send(byte feature, byte command, ReadOnlySpan<byte> data, int timeoutMs, bool allowNudge)
     {
         if (!CommandAllowlist.IsAllowed(feature, command))
             throw new InvalidOperationException($"Command {feature}/{command} is not on the safety allowlist.");
@@ -54,7 +58,7 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
 
             var sw = Stopwatch.StartNew();
             // Only image writes show the held-reply quirk, and only they are safe to repeat.
-            bool canNudge = NudgeAfterMs > 0 && ImageWriteHeaderLength(feature, command) > 0;
+            bool canNudge = allowNudge && NudgeAfterMs > 0 && ImageWriteHeaderLength(feature, command) > 0;
             long nextNudge = canNudge ? NudgeAfterMs : long.MaxValue;
             while (true)
             {

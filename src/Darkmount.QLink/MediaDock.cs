@@ -60,7 +60,8 @@ public sealed class MediaDock(QLinkClient q)
         payload[0] = slot;
         BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(1), offset);
         data.CopyTo(payload.AsSpan(5));
-        q.Send(Features.MediaDock, MediaDockCommands.SetImage, payload, timeoutMs);
+        // The header (offset 0) starts a new image; repeating it could reset the dock's buffer, so never nudge it.
+        q.Send(Features.MediaDock, MediaDockCommands.SetImage, payload, timeoutMs, allowNudge: offset != 0);
     }
 
     public static byte[] ImageHeader(int width, int height, int payloadLength, byte format = FormatRgb565)
