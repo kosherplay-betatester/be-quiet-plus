@@ -85,10 +85,10 @@ public class DockTests : IDisposable
     [Fact]
     public void Running_config_shows_the_image_and_never_turns_the_screen_off()
     {
-        var running = DockConfigGuard.Running(DockConfig.UserOriginal, idleSeconds: 3);
+        var running = DockConfigGuard.Running(DockConfig.UserOriginal, idleSeconds: 1);
 
         Assert.Equal(ScreensaverMode.Image, running.Screensaver);
-        Assert.Equal(3, running.IdleSeconds);
+        Assert.Equal(1, running.IdleSeconds);
         Assert.Equal(0, running.ScreenOffSeconds);
         Assert.Equal((0xDC, 0x4D, 0x00), (running.MenuR, running.MenuG, running.MenuB));
         Assert.True(DockConfigGuard.LooksLikeAppConfig(running));
@@ -113,7 +113,7 @@ public class DockTests : IDisposable
             };
             Conn = new DockConnection(() => Transport, new DockConfigGuard(Path.Combine(dir, "b.hex")), () => IoCenter)
             {
-                IdleSeconds = 3,
+                IdleSeconds = 1,
                 HeaderTimeoutMs = 200,
                 ChunkTimeoutMs = 200,
             };
@@ -147,7 +147,7 @@ public class DockTests : IDisposable
 
         Assert.Equal(DockState.Ready, h.Conn.State);
         var cfg = DockConfig.FromBytes(Assert.Single(h.SetConfigs()).Data);
-        Assert.Equal(DockConfigGuard.Running(DockConfig.UserOriginal, 3), cfg);
+        Assert.Equal(DockConfigGuard.Running(DockConfig.UserOriginal, 1), cfg);
         int lastImage = h.Transport.Requests.FindLastIndex(r => r.Command == MediaDockCommands.SetImage);
         int config = h.Transport.Requests.FindIndex(r => r.Command == MediaDockCommands.SetConfig);
         Assert.True(config > lastImage);
@@ -289,7 +289,7 @@ public class DockTests : IDisposable
         h.Conn.UpdateUserDockConfig(green);
 
         var sent = DockConfig.FromBytes(h.SetConfigs()[^1].Data);
-        Assert.Equal(DockConfigGuard.Running(green, 3), sent);
+        Assert.Equal(DockConfigGuard.Running(green, 1), sent);
         h.Conn.Dispose();
         Assert.Equal(green, DockConfig.FromBytes(h.SetConfigs()[^1].Data)); // restored on exit
     }

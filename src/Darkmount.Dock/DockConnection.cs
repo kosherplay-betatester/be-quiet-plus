@@ -44,8 +44,11 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
     public DockState State { get; private set; } = DockState.Disconnected;
     public string? LastError { get; private set; }
 
-    /// <summary>Seconds the dock's own menu stays up after the user touches the dial (1–4).</summary>
-    public int IdleSeconds { get; set; } = 3;
+    /// <summary>
+    /// Dock idle delay while the app drives it. 1 s: each uploaded image counts as dock activity, so a longer
+    /// delay with continuous refreshes keeps the dock on its menu (verified on hardware).
+    /// </summary>
+    public int IdleSeconds { get; set; } = 1;
 
     public int HeaderTimeoutMs { get; init; } = 8000;
     public int ChunkTimeoutMs { get; init; } = 5000;

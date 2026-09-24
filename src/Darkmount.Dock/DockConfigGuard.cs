@@ -55,5 +55,5 @@ public sealed class DockConfigGuard(string backupPath)
 
     /// <summary>Config while the app drives the dock: show our image after the idle delay, keep the screen on.</summary>
     public static DockConfig Running(DockConfig original, int idleSeconds) =>
-        original with { Screensaver = ScreensaverMode.Image, IdleSeconds = Math.Clamp(idleSeconds, 1, 4), ScreenOffSeconds = 0 };
+        original with { Screensaver = ScreensaverMode.Image, IdleSeconds = Math.Clamp(idleSeconds, 1, 2), ScreenOffSeconds = 0 };
 }

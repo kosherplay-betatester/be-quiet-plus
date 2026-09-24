@@ -34,8 +34,11 @@ public sealed class AppSettings
     public AnimationKind AnimationKind { get; set; } = AnimationKind.Plasma;
     public string? AnimationPath { get; set; }
 
-    /// <summary>How long the dock's own menu stays up after touching the dial (1–4 s).</summary>
-    public int DockIdleSeconds { get; set; } = 3;
+    /// <summary>
+    /// Idle delay the dock uses while the app drives it. Must stay 1 s: every new image counts as activity for
+    /// the dock, so with a longer delay and continuous refreshes the dock would never show the dashboard.
+    /// </summary>
+    public int DockIdleSeconds { get; set; } = 1;
 
     public int RefreshMs { get; set; } = 2000;
     public string Hotkey { get; set; } = "Ctrl+Alt+Shift+D";

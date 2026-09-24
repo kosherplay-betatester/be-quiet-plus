@@ -18,7 +18,7 @@ public sealed class SettingsForm : Form
 
     // Dock screen
     readonly ComboBox _mode = Ui.Combo<ScreenMode>(), _default = Ui.Combo<ScreenKind>();
-    readonly NumericUpDown _idle = Ui.Number(1, 4), _refresh = Ui.Number(1.5m, 60, 0.5m, 1);
+    readonly NumericUpDown _refresh = Ui.Number(1.5m, 60, 0.5m, 1);
     readonly TextBox _hotkey = new() { Width = 220, Font = Ui.Body };
     readonly CheckBox _autostart = Ui.Check("Start Darkmount Hub with Windows");
 
@@ -149,7 +149,6 @@ public sealed class SettingsForm : Form
         var p = new Ui.Page("Dock screen", "What the media dock shows and how Darkmount Hub behaves.");
         p.Row("Screen", _mode, "Auto shows stats while a game runs");
         p.Row("Default screen (Auto)", _default);
-        p.Row("Dock menu stays up for", _idle, "seconds after you use the dial");
         p.Row("Refresh every", _refresh, "seconds (the dock needs ~1.6 s per image)");
         p.Row("Switch-screen hotkey", _hotkey);
         p.Row("", _autostart);
@@ -228,7 +227,6 @@ public sealed class SettingsForm : Form
     {
         _mode.SelectedItem = _edit.Mode;
         _default.SelectedItem = _edit.DefaultScreen;
-        _idle.Value = Math.Clamp(_edit.DockIdleSeconds, 1, 4);
         _refresh.Value = Math.Clamp(_edit.RefreshMs / 1000m, 1.5m, 60);
         _hotkey.Text = _edit.Hotkey;
         _autostart.Checked = _edit.StartWithWindows;
@@ -267,7 +265,7 @@ public sealed class SettingsForm : Form
         var s = Clone(_edit);
         s.Mode = (ScreenMode)_mode.SelectedItem!;
         s.DefaultScreen = (ScreenKind)_default.SelectedItem!;
-        s.DockIdleSeconds = (int)_idle.Value;
+        s.DockIdleSeconds = 1;
         s.RefreshMs = (int)(_refresh.Value * 1000);
         s.Hotkey = _hotkey.Text.Trim();
         s.StartWithWindows = _autostart.Checked;
