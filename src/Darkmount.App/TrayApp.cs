@@ -19,6 +19,7 @@ public sealed class TrayApp : ApplicationContext
     readonly HotkeyWindow _hotkey = new();
     readonly DockConnection _dock;
     readonly SynchronizationContext _ui;
+    readonly KeyboardService _keyboard;
 
     AppSettings _settings;
     FramePipeline _pipeline;
@@ -39,6 +40,7 @@ public sealed class TrayApp : ApplicationContext
 
         _pipeline = new FramePipeline(_dock, () => _settings);
         _pipeline.FrameRendered += OnFrame;
+        _keyboard = new KeyboardService(_dock);
 
         _tray = new NotifyIcon { Icon = CreateIcon(), Text = "Darkmount Hub", Visible = true, ContextMenuStrip = BuildMenu() };
         _tray.DoubleClick += (_, _) => ShowSettings();
@@ -146,7 +148,7 @@ public sealed class TrayApp : ApplicationContext
     void ShowSettings()
     {
         if (_settingsForm is { IsDisposed: false }) { _settingsForm.Activate(); return; }
-        _settingsForm = new SettingsForm(_settings, ApplySettings, StatusReport);
+        _settingsForm = new SettingsForm(_settings, ApplySettings, StatusReport, _keyboard);
         _settingsForm.Show();
     }
 

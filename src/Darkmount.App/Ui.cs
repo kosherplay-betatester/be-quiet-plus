@@ -15,7 +15,7 @@ public static class Ui
     public static readonly Font Section = new("Segoe UI Semibold", 11f);
 
     /// <summary>A page: title, optional description, then aligned label/control rows.</summary>
-    public sealed class Page : TableLayoutPanel
+    public class Page : TableLayoutPanel
     {
         public Page(string title, string? description = null)
         {
