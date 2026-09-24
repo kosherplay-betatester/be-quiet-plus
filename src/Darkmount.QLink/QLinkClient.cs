@@ -24,6 +24,17 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
     /// <summary>Raised for every unsolicited device notification (on the thread that is reading).</summary>
     public event Action<Frame>? Notification;
 
+    /// <summary>
+    /// The firmware sometimes holds a finished reply until it receives more traffic. When no reply has
+    /// arrived after this many ms, a harmless media-dock GetState is sent to flush it (0 = never).
+    /// </summary>
+    public int NudgeAfterMs { get; set; } = 600;
+
+    /// <summary>Number of nudges sent so far (diagnostics).</summary>
+    public int Nudges { get; private set; }
+
+    byte NextRequestId() => _reqId = (byte)(_reqId == 255 ? 1 : _reqId + 1);
+
     public byte[] Send(byte feature, byte command, ReadOnlySpan<byte> data = default, int timeoutMs = 3000)
     {
         if (!CommandAllowlist.IsAllowed(feature, command))
@@ -31,16 +42,31 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
 
         lock (_gate)
         {
-            _reqId = (byte)(_reqId == 255 ? 1 : _reqId + 1);
-            foreach (var packet in Frame.Build(Sid, _reqId, feature, command, data))
+            byte expected = NextRequestId();
+            foreach (var packet in Frame.Build(Sid, expected, feature, command, data))
                 transport.Write(packet);
 
             var sw = Stopwatch.StartNew();
+            long nextNudge = NudgeAfterMs > 0 ? NudgeAfterMs : long.MaxValue;
             while (true)
             {
-                var f = ReadFrame(Remaining(sw, timeoutMs));
+                Frame f;
+                try
+                {
+                    int left = Remaining(sw, timeoutMs);
+                    f = ReadFrame((int)Math.Clamp(nextNudge - sw.ElapsedMilliseconds, 1, left));
+                }
+                catch (TimeoutException) when (sw.ElapsedMilliseconds < timeoutMs)
+                {
+                    if (sw.ElapsedMilliseconds >= nextNudge)
+                    {
+                        Nudge();
+                        nextNudge = sw.ElapsedMilliseconds + NudgeAfterMs;
+                    }
+                    continue;
+                }
                 if (f.IsNotification || f.IsContinuation) continue;
-                if (f.Feature != feature || f.Command != command || f.ReqId != _reqId) continue;
+                if (f.Feature != feature || f.Command != command || f.ReqId != expected) continue;
                 if (f.Status != 0)
                     throw new QLinkException((QLinkStatus)f.Status, $"{feature}/{command} failed: {(QLinkStatus)f.Status}");
 
@@ -54,6 +80,14 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
                 return result;
             }
         }
+    }
+
+    /// <summary>Sends a GetState whose reply is ignored; its only purpose is to flush a held reply.</summary>
+    void Nudge()
+    {
+        foreach (var packet in Frame.Build(Sid, NextRequestId(), Features.MediaDock, MediaDockCommands.GetState, []))
+            transport.Write(packet);
+        Nudges++;
     }
 
     static int Remaining(Stopwatch sw, int timeoutMs)

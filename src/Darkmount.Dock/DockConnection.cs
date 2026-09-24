@@ -37,7 +37,8 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
     FrameUploader? _uploader;
     DockConfig? _original;
     bool _needsRunningConfig;
-    DateTime _lastClock, _lastTraffic, _otherAppSince;
+    int _stalls;
+    DateTime _lastClock, _lastTraffic, _otherAppSince, _resumeAt;
     int _ticking;
 
     public DockState State { get; private set; } = DockState.Disconnected;
@@ -45,6 +46,9 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
 
     /// <summary>Seconds the dock's own menu stays up after the user touches the dial (1–4).</summary>
     public int IdleSeconds { get; set; } = 3;
+
+    public int HeaderTimeoutMs { get; init; } = 8000;
+    public int ChunkTimeoutMs { get; init; } = 5000;
 
     /// <summary>User-requested pause (tray menu). Applied on the next <see cref="Tick"/>.</summary>
     public bool Paused { get; set; }
@@ -97,7 +101,10 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
             if (_transport is null) { SetState(DockState.Disconnected); return; }
 
             _client = new QLinkClient(_transport);
+            _client.Pump(200); // discard stale reports left in the OS buffer by earlier sessions
             _client.OpenSession();
+            _stalls = 0;
+            _resumeAt = default;
             if (!_client.IsActive && !TryBecomeActive()) return;
 
             _dock = new MediaDock(_client);
@@ -106,7 +113,7 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
             _original = guard.Resolve(_dock.GetConfig());
             _dock.SetDateTime(DateTime.Now);
             _lastClock = _lastTraffic = DateTime.UtcNow;
-            _uploader = new FrameUploader(_client, _dock);
+            _uploader = new FrameUploader(_client, _dock) { HeaderTimeoutMs = HeaderTimeoutMs, ChunkTimeoutMs = ChunkTimeoutMs };
             _uploader.Log += m => Log?.Invoke(m);
             _needsRunningConfig = true;
             LastError = null;
@@ -136,15 +143,30 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
         return false;
     }
 
-    /// <summary>Uploads a full RGB565 frame. Returns false when the keyboard is not available.</summary>
+    /// <summary>True while the dock is not answering image uploads (usually asleep: press a dock button).</summary>
+    public bool DockUnresponsive => _stalls > 0;
+
+    /// <summary>Uploads a full RGB565 frame. Returns false when the keyboard is not available or backing off.</summary>
     public bool Present(byte[] rgb565)
     {
         lock (_io)
         {
             if (_uploader is null || State is not (DockState.Connected or DockState.Ready)) return false;
+            if (DateTime.UtcNow < _resumeAt) return false;
             try
             {
-                if (!_uploader.Upload(rgb565)) return false;
+                if (_uploader.Upload(rgb565) == UploadResult.Stalled)
+                {
+                    // Never hammer a busy or sleeping dock: back off 5, 10, 20, then 30 s between attempts.
+                    _stalls++;
+                    var wait = TimeSpan.FromSeconds(Math.Min(30, 5 << Math.Min(_stalls - 1, 3)));
+                    _resumeAt = DateTime.UtcNow + wait;
+                    _client!.Pump(300); // swallow late replies
+                    Log?.Invoke($"Backing off {wait.TotalSeconds:F0} s before the next frame");
+                    return false;
+                }
+                if (_stalls > 0) Log?.Invoke($"Dock responsive again after {_stalls} stalled frame(s)");
+                _stalls = 0;
                 _lastTraffic = DateTime.UtcNow;
                 if (_needsRunningConfig)
                 {

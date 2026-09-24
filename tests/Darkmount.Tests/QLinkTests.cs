@@ -145,6 +145,53 @@ public class QLinkTests
         Assert.Equal(payload, q.Send(Features.MediaDock, MediaDockCommands.GetImage, new byte[9]));
     }
 
+    /// <summary>Real firmware quirk: a finished reply is held until the host sends something else.</summary>
+    sealed class HoldingTransport : IHidTransport
+    {
+        readonly FakeTransport _inner = new();
+        byte[]? _held;
+        public int SetImageWrites;
+        public int GetStateWrites;
+
+        public void Write(ReadOnlySpan<byte> packet)
+        {
+            var f = Frame.Parse(packet);
+            if (_held is not null) { _inner.Enqueue(_held); _held = null; } // any new traffic flushes it
+            if (f.IsContinuation) return;
+            if (f.Command == MediaDockCommands.SetImage)
+            {
+                SetImageWrites++;
+                _held = FakeTransport.Reply(f, []).Single();
+            }
+            else
+            {
+                if (f.Command == MediaDockCommands.GetState) GetStateWrites++;
+                foreach (var r in FakeTransport.Reply(f, [1, 1])) _inner.Enqueue(r);
+            }
+        }
+
+        public byte[] Read(int timeoutMs)
+        {
+            try { return _inner.Read(timeoutMs); }
+            catch (TimeoutException) { Thread.Sleep(Math.Min(timeoutMs, 20)); throw; }
+        }
+
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public void A_held_reply_is_flushed_by_a_nudge_without_resending_the_request()
+    {
+        var t = new HoldingTransport();
+        using var q = new QLinkClient(t) { NudgeAfterMs = 50 };
+
+        q.Send(Features.MediaDock, MediaDockCommands.SetImage, new byte[20], timeoutMs: 2000);
+
+        Assert.Equal(1, t.SetImageWrites);
+        Assert.Equal(1, t.GetStateWrites);
+        Assert.Equal(1, q.Nudges);
+    }
+
     [Fact]
     public void Timeout_propagates_as_TimeoutException()
     {

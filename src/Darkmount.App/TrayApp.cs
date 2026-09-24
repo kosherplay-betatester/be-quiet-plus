@@ -195,6 +195,7 @@ public sealed class TrayApp : ApplicationContext
     {
         string state = _dock.State switch
         {
+            DockState.Connected or DockState.Ready when _dock.DockUnresponsive => "Dock not responding: press a dock button to wake it",
             DockState.Ready => $"Showing {_pipeline.CurrentScreen} on the dock",
             DockState.Connected => "Connecting to the dock…",
             DockState.PausedForIoCenter => "Paused: IO Center is running",

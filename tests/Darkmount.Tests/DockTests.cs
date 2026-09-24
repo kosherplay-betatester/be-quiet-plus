@@ -27,7 +27,7 @@ public class DockTests : IDisposable
         var q = new QLinkClient(t);
         var up = new FrameUploader(q, new MediaDock(q));
 
-        Assert.True(up.Upload(Frame(0xAB)));
+        Assert.Equal(UploadResult.Done, up.Upload(Frame(0xAB)));
 
         var writes = SetImages(t);
         Assert.Equal(1 + 39, writes.Count); // 153,600 / 4,000 = 38.4 → 39 chunks
@@ -40,33 +40,27 @@ public class DockTests : IDisposable
     }
 
     [Fact]
-    public void A_stall_mid_upload_restarts_the_frame_from_the_header()
-    {
-        var t = new FakeTransport();
-        var q = new QLinkClient(t);
-        int setImages = 0;
-        t.Responder = req => req.Command == MediaDockCommands.SetImage && ++setImages == 6 ? null : FakeTransport.Ok(req);
-        var up = new FrameUploader(q, new MediaDock(q));
-
-        Assert.True(up.Upload(Frame(1)));
-
-        var offsets = SetImages(t).Select(OffsetOf).ToList();
-        int restart = offsets.LastIndexOf(0u);
-        Assert.Equal(6, restart);                       // 6th write stalled, then the header again
-        Assert.Equal(40, offsets.Count - restart);      // a full, clean pass after the restart
-        Assert.Contains(t.Requests, r => r.Command == MediaDockCommands.GetState); // waited for the device
-    }
-
-    [Fact]
-    public void Upload_gives_up_after_too_many_stalls()
+    public void A_stall_mid_upload_abandons_the_frame_without_resending()
     {
         var t = new FakeTransport();
         var q = new QLinkClient(t);
         t.Responder = req => req.Command == MediaDockCommands.SetImage && OffsetOf(req) == 4009 ? null : FakeTransport.Ok(req);
-        var up = new FrameUploader(q, new MediaDock(q)) { MaxRestarts = 3 };
+        var up = new FrameUploader(q, new MediaDock(q));
 
-        Assert.False(up.Upload(Frame(2)));
-        Assert.Equal(4, SetImages(t).Count(r => OffsetOf(r) == 0));
+        Assert.Equal(UploadResult.Stalled, up.Upload(Frame(2)));
+
+        var offsets = SetImages(t).Select(OffsetOf).ToList();
+        Assert.Equal([0u, 9u, 4009u], offsets); // stopped at the stalled chunk; nothing re-sent
+    }
+
+    [Fact]
+    public void A_sleeping_dock_that_ignores_the_header_gets_nothing_else()
+    {
+        var t = new FakeTransport { Responder = req => req.Command == MediaDockCommands.SetImage ? null : FakeTransport.Ok(req) };
+        var q = new QLinkClient(t);
+
+        Assert.Equal(UploadResult.Stalled, new FrameUploader(q, new MediaDock(q)).Upload(Frame(2)));
+        Assert.Single(SetImages(t));
     }
 
     [Fact]
@@ -222,6 +216,22 @@ public class DockTests : IDisposable
         h.Conn.Dispose();
 
         Assert.Equal(DockConfig.UserOriginal, DockConfig.FromBytes(h.SetConfigs()[^1].Data));
+    }
+
+    [Fact]
+    public void A_stalled_frame_makes_the_connection_back_off()
+    {
+        var h = new Harness(_dir);
+        h.Conn.Tick();
+        var respond = h.Transport.Responder;
+        h.Transport.Responder = req => req.Command == MediaDockCommands.SetImage ? null : respond(req);
+
+        Assert.False(h.Conn.Present(Frame(1)));
+        Assert.True(h.Conn.DockUnresponsive);
+        int writes = SetImages(h.Transport).Count;
+
+        Assert.False(h.Conn.Present(Frame(1))); // still backing off: nothing sent
+        Assert.Equal(writes, SetImages(h.Transport).Count);
     }
 
     [Fact]
