@@ -89,12 +89,4 @@ public static class CommandAllowlist
 
     public static bool IsAllowed(byte feature, byte command) => Allowed.Contains((feature, command));
 
-    /// <summary>Adds more pairs (used by later phases, e.g. lighting); never DFU/factory commands.</summary>
-    public static void Allow(byte feature, byte command)
-    {
-        if (feature is Features.Dfu or Features.Storage or Features.Hub or Features.KeyValueStorage
-            || (feature == Features.DeviceInfo && command >= 3))
-            throw new InvalidOperationException($"Command {feature}/{command} can never be allowed.");
-        Allowed.Add((feature, command));
-    }
 }

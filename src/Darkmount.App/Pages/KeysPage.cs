@@ -4,31 +4,35 @@ using static Darkmount.Keyboard.BindingAction;
 namespace Darkmount.App.Pages;
 
 /// <summary>
-/// Key remapping on the normal and Fn layers (every key, the 8 display keys and the 4 dock buttons), the master
-/// binding switch, and the Game Mode key locks. Bindings are stored on the keyboard.
+/// Key remapping on the base and Fn layers (every key, the 8 display keys and the 4 dock buttons), the master
+/// binding switch, and the Game Mode key locks. Bindings are stored on the keyboard. Gamer-style layout: a large
+/// keyboard that fills the window, remapped keys labelled on the keycaps, and action tiles.
 /// </summary>
 public sealed class KeysPage : Ui.Page
 {
     enum Kind { Default, Disabled, Key, FKey, Media, Mouse, Scroll, WindowsShortcut, Backlight, Character, Website }
 
-    static readonly (Kind Kind, string Name)[] Kinds =
+    // Segoe MDL2 / Fluent icon glyphs.
+    static readonly (Kind Kind, char Glyph, string Name)[] Kinds =
     [
-        (Kind.Default, "Default (the key's normal function)"), (Kind.Disabled, "Disabled"), (Kind.Key, "Key or shortcut"),
-        (Kind.FKey, "F13–F24 (for macros and apps)"), (Kind.Media, "Media"), (Kind.Mouse, "Mouse button"),
-        (Kind.Scroll, "Mouse scroll"), (Kind.WindowsShortcut, "Windows shortcut"), (Kind.Backlight, "Lighting control"),
-        (Kind.Character, "Special character"), (Kind.Website, "Open website"),
+        (Kind.Default, '', "Default"), (Kind.Key, '', "Key / combo"), (Kind.Media, '', "Media"),
+        (Kind.Mouse, '', "Mouse"), (Kind.Scroll, '', "Scroll"), (Kind.FKey, '', "Macro key"),
+        (Kind.WindowsShortcut, '', "Windows"), (Kind.Backlight, '', "Lighting"), (Kind.Character, '', "Character"),
+        (Kind.Website, '', "Website"), (Kind.Disabled, '', "Disable"),
     ];
 
     readonly KeyboardService _keyboard;
-    readonly KeyboardView _view = new() { Size = new Size(760, 290), Margin = new Padding(0, 6, 0, 6) };
-    readonly RadioButton _normal = new() { Text = "Normal layer", AutoSize = true, Checked = true, ForeColor = Ui.Text };
-    readonly RadioButton _fn = new() { Text = "Fn layer (while holding Fn)", AutoSize = true, ForeColor = Ui.Text };
-    readonly CheckBox _enabled = Ui.Check("Custom key bindings enabled");
-    readonly Label _keyTitle = new() { AutoSize = true, Font = Ui.Section, ForeColor = Ui.Accent };
-    readonly Label _current = Ui.Note("", 640);
-    readonly ComboBox _kind = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300, Font = Ui.Body };
-    readonly FlowLayoutPanel _editor = new() { AutoSize = true, WrapContents = true, MaximumSize = new Size(700, 0) };
-    readonly Label _status = Ui.Note("", 700);
+    readonly KeyboardView _view = new() { Size = new Size(900, 330), Margin = new Padding(0, 6, 0, 10) };
+    readonly Button _baseLayer, _fnLayer;
+    readonly ToggleSwitch _enabled = new("Custom key bindings ON");
+    readonly Label _keyTitle = new() { AutoSize = true, Font = new Font("Segoe UI Semibold", 20f), ForeColor = Color.White, Margin = new Padding(0, 0, 0, 2) };
+    readonly Label _current = new() { AutoSize = true, Font = Ui.Body, ForeColor = Color.FromArgb(255, 170, 70), MaximumSize = new Size(560, 0), Margin = new Padding(0, 0, 0, 10) };
+    readonly FlowLayoutPanel _tiles = new() { AutoSize = true, WrapContents = true, MaximumSize = new Size(580, 0) };
+    readonly FlowLayoutPanel _editor = new() { AutoSize = true, WrapContents = true, MaximumSize = new Size(580, 0), Margin = new Padding(0, 4, 0, 8) };
+    readonly Label _status = Ui.Note("", 900);
+    readonly Dictionary<Kind, IconTile> _tileOf = [];
+    Kind _kind = Kind.Default;
+    bool _fnSelected;
 
     // Editor controls (shown depending on the kind).
     readonly CheckBox _ctrl = Ui.Check("Ctrl"), _shift = Ui.Check("Shift"), _alt = Ui.Check("Alt"), _win = Ui.Check("Win");
@@ -39,25 +43,37 @@ public sealed class KeysPage : Ui.Page
     readonly TextBox _text = new() { Width = 360, Font = Ui.Body };
 
     // Game Mode locks
-    readonly CheckBox _lockWin = Ui.Check("Windows key"), _lockAltTab = Ui.Check("Alt+Tab"), _lockAltF4 = Ui.Check("Alt+F4"),
-        _lockShiftTab = Ui.Check("Shift+Tab"), _lockCaps = Ui.Check("Caps Lock"), _gameMode = Ui.Check("Game Mode is on");
+    readonly ToggleSwitch _lockWin = new("Windows key"), _lockAltTab = new("Alt+Tab"), _lockAltF4 = new("Alt+F4"),
+        _lockShiftTab = new("Shift+Tab"), _lockCaps = new("Caps Lock"), _gameMode = new("GAME MODE ACTIVE");
 
     List<KeyBinding> _bindings = [];
     bool _loaded;
 
     public KeysPage(KeyboardService keyboard)
-        : base("Keys", "Click a key, choose what it should do and press Apply. Bindings are stored on the keyboard. " +
-                       "The dock buttons use these bindings when the dock is in its CUSTOM mode.")
+        : base("Key bindings", "Click any key, pick what it should do, hit APPLY. Stored on the keyboard — works everywhere, " +
+                               "even without Darkmount Hub. Dock buttons use these in the dock's CUSTOM mode.")
     {
         _keyboard = keyboard;
         _view.KeyShapes = KeyGeometry.Layout(PhysicalLayout.Ansi, NumpadSide.Right, includeDock: true)
             .Select(k => new KeyShape(k.KeyId, new RectangleF(k.X, k.Y, k.Width, k.Height), ShortLabel(k.KeyId)))
             .ToList();
         _view.SelectionChanged += ShowSelected;
-        _normal.CheckedChanged += (_, _) => { RefreshMarks(); ShowSelected(); };
 
-        foreach (var (_, name) in Kinds) _kind.Items.Add(name);
-        _kind.SelectedIndexChanged += (_, _) => BuildEditor();
+        _baseLayer = LayerButton("BASE LAYER", false);
+        _fnLayer = LayerButton("FN LAYER", true);
+        var layers = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 4) };
+        layers.Controls.AddRange([_baseLayer, _fnLayer, Spacer(24), _enabled]);
+        _enabled.Size = new Size(260, 40);
+        AddFull(layers);
+        AddFull(_view);
+
+        foreach (var (kind, glyph, name) in Kinds)
+        {
+            var tile = new IconTile(glyph, name);
+            tile.Click += (_, _) => SelectKind(kind);
+            _tileOf[kind] = tile;
+            _tiles.Controls.Add(tile);
+        }
         foreach (var u in HidUsage.Offered) _usage.Items.Add(new Item<byte>(u.Name, u.Usage));
         for (int n = 13; n <= 24; n++) _fkey.Items.Add(new Item<byte>($"F{n}", HidUsage.FKey(n)));
         foreach (var m in Enum.GetValues<MediaAction>().Where(m => m is not (MediaAction.None or MediaAction.SpecificSound)))
@@ -71,37 +87,80 @@ public sealed class KeysPage : Ui.Page
         foreach (var e in LightingEffects.DarkMount) _effect.Items.Add(new Item<Effect>(e.Name, e.Effect));
         _backlight.SelectedIndexChanged += (_, _) => _effect.Visible = Selected<BacklightAction>(_backlight) == BacklightAction.SelectEffect;
 
-        var layers = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        layers.Controls.AddRange([_normal, _fn, _enabled]);
-        AddFull(layers);
-        AddFull(_view);
-        AddFull(_keyTitle);
-        AddFull(_current);
-        Row("Action", _kind);
-        Row("", _editor);
-        var actions = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        actions.Controls.Add(Ui.Button("Apply to key", async (_, _) => await ApplyKey(), primary: true));
-        actions.Controls.Add(Ui.Button("Reload", async (_, _) => await Load()));
-        actions.Controls.Add(Ui.Button("Restore all factory bindings", async (_, _) => await RestoreFactory()));
-        AddFull(actions);
+        // Selected-key card
+        var keyCard = new Card("Selected key");
+        var apply = Ui.Button("APPLY TO KEY", async (_, _) => await ApplyKey(), primary: true);
+        apply.MinimumSize = new Size(170, 42);
+        apply.Font = new Font("Segoe UI Semibold", 11f);
+        var keyActions = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        keyActions.Controls.AddRange([apply, Ui.Button("Reload", async (_, _) => await Load()),
+            Ui.Button("Factory bindings", async (_, _) => await RestoreFactory())]);
+        keyCard.Controls.AddRange([_keyTitle, _current, _tiles, _editor, keyActions]);
+
+        // Game Mode card
+        var gameCard = new Card("Game Mode  ·  Fn + Pause");
+        gameCard.Controls.Add(new Label
+        {
+            Text = "While Game Mode is on, these are blocked so you\ncan't alt-tab out of a match by accident:",
+            AutoSize = true, ForeColor = Ui.Dim, Font = Ui.Body, Margin = new Padding(0, 0, 0, 8),
+        });
+        foreach (var t in new[] { _lockWin, _lockAltTab, _lockAltF4, _lockShiftTab, _lockCaps }) { t.Size = new Size(260, 32); gameCard.Controls.Add(t); }
+        _gameMode.Size = new Size(260, 40);
+        _gameMode.Font = new Font("Segoe UI Semibold", 10.5f);
+        gameCard.Controls.Add(_gameMode);
+        var applyGm = Ui.Button("APPLY GAME MODE", async (_, _) => await ApplyGameMode(), primary: true);
+        applyGm.MinimumSize = new Size(200, 40);
+        gameCard.Controls.Add(applyGm);
+
+        var cards = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
+        cards.Controls.AddRange([keyCard, gameCard]);
+        AddFull(cards);
         AddFull(_status);
 
-        Heading("Game Mode (Fn + Pause)");
-        AddFull(Ui.Note("While Game Mode is on, these combinations are blocked so you can't leave the game by accident.", 640));
-        var locks = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(700, 0) };
-        locks.Controls.AddRange([_lockWin, _lockAltTab, _lockAltF4, _lockShiftTab, _lockCaps]);
-        AddFull(locks);
-        var gm = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        gm.Controls.Add(_gameMode);
-        gm.Controls.Add(Ui.Button("Apply Game Mode settings", async (_, _) => await ApplyGameMode()));
-        AddFull(gm);
-
         _enabled.Click += async (_, _) => await ApplyEnabled();
+        SetLayer(false);
         _view.Select([KeyIds.CapsLock]);
+        SelectKind(Kind.Default);
+        ParentChanged += (_, _) =>
+        {
+            if (Parent is null) return;
+            Parent.SizeChanged += (_, _) => FitKeyboard();
+            FitKeyboard();
+        };
         VisibleChanged += async (_, _) => { if (Visible && !_loaded) await Load(); };
     }
 
-    Layer CurrentLayer => _fn.Checked ? Layer.Fn : Layer.Common;
+    /// <summary>The keyboard fills the page width (and keeps its proportions).</summary>
+    void FitKeyboard()
+    {
+        if (Parent is null) return;
+        int width = Math.Max(640, Parent.ClientSize.Width - Padding.Horizontal - SystemInformation.VerticalScrollBarWidth - 8);
+        _view.Size = new Size(width, (int)(width * 0.38));
+    }
+
+    Button LayerButton(string text, bool fn)
+    {
+        var b = Ui.Button(text, (_, _) => SetLayer(fn));
+        b.MinimumSize = new Size(170, 42);
+        b.Font = new Font("Segoe UI Semibold", 11f);
+        return b;
+    }
+
+    static Control Spacer(int w) => new Panel { Width = w, Height = 1, Margin = new Padding(0) };
+
+    void SetLayer(bool fn)
+    {
+        _fnSelected = fn;
+        foreach (var (b, on) in new[] { (_baseLayer, !fn), (_fnLayer, fn) })
+        {
+            b.BackColor = on ? Ui.Accent : Ui.Panel;
+            b.ForeColor = on ? Color.Black : Ui.Text;
+        }
+        RefreshMarks();
+        ShowSelected();
+    }
+
+    Layer CurrentLayer => _fnSelected ? Layer.Fn : Layer.Common;
 
     // ---------------------------------------------------------------- loading
 
@@ -116,6 +175,7 @@ public sealed class KeysPage : Ui.Page
                 var s = new KeyboardSettings(q);
                 return (new Bindings(q).GetAll().ToList(), new Bindings(q).GetEnabled(), s.GetLocks(), s.GetState());
             });
+            if (IsDisposed) return;
             _bindings = bindings;
             _enabled.Checked = enabled;
             _lockWin.Checked = locks.HasFlag(GameModeLocks.Win);
@@ -126,12 +186,17 @@ public sealed class KeysPage : Ui.Page
             _gameMode.Checked = state.HasFlag(KeyboardStateFlags.GameMode);
             RefreshMarks();
             ShowSelected();
-            _status.Text = $"{_bindings.Count} custom binding(s) on the keyboard. Keys with a dot are remapped.";
+            _status.Text = $"{_bindings.Count} custom binding(s) on the keyboard. Remapped keys show their new function in orange.";
         }
         catch (Exception e) { _status.Text = Friendly(e); }
     }
 
-    void RefreshMarks() => _view.SetMarked(_bindings.Where(b => b.Layer == CurrentLayer).Select(b => (int)b.KeyId));
+    void RefreshMarks()
+    {
+        var layer = _bindings.Where(b => b.Layer == CurrentLayer).ToList();
+        _view.SetMarked(layer.Select(b => (int)b.KeyId));
+        _view.SetSubLabels(layer.ToDictionary(b => (int)b.KeyId, b => Short(b.Action)));
+    }
 
     // ---------------------------------------------------------------- selected key
 
@@ -140,16 +205,16 @@ public sealed class KeysPage : Ui.Page
     void ShowSelected()
     {
         if (SelectedKey is not { } id || KeyIds.Find(id) is not { } info) return;
-        _keyTitle.Text = $"{info.Label}   ({(CurrentLayer == Layer.Fn ? "Fn layer" : "normal layer")})";
+        _keyTitle.Text = $"{info.Label}{(CurrentLayer == Layer.Fn ? "  (Fn +)" : "")}";
         bool locked = !KeyIds.IsRebindable(id, CurrentLayer);
         var binding = _bindings.FirstOrDefault(b => b.KeyId == id && b.Layer == CurrentLayer);
-        _current.Text = locked ? "This key can't be changed (it controls the keyboard itself)."
-            : binding is null ? "Currently: its normal function." : $"Currently: {Describe(binding.Action)}";
-        _kind.Enabled = !locked;
-        SelectKind(binding?.Action);
+        _current.Text = locked ? "Locked: this key controls the keyboard itself and can't be changed."
+            : binding is null ? "Does its normal job." : $"Now does: {Describe(binding.Action)}";
+        _tiles.Enabled = _editor.Enabled = !locked;
+        LoadAction(binding?.Action);
     }
 
-    void SelectKind(BindingAction? action)
+    void LoadAction(BindingAction? action)
     {
         var kind = action switch
         {
@@ -167,7 +232,6 @@ public sealed class KeysPage : Ui.Page
             OpenBrowser => Kind.Website,
             _ => Kind.Default,
         };
-        _kind.SelectedIndex = Array.FindIndex(Kinds, k => k.Kind == kind);
         switch (action)
         {
             case StandardKey k:
@@ -188,38 +252,39 @@ public sealed class KeysPage : Ui.Page
             case AltCode a: _text.Text = char.ConvertFromUtf32(a.CodePoint); break;
             case OpenBrowser o: _text.Text = o.Url; break;
         }
+        SelectKind(kind);
     }
 
-    void BuildEditor()
+    void SelectKind(Kind kind)
     {
+        _kind = kind;
+        foreach (var (k, tile) in _tileOf) tile.Selected = k == kind;
         _editor.Controls.Clear();
-        switch (Kinds[Math.Max(0, _kind.SelectedIndex)].Kind)
+        switch (kind)
         {
+            case Kind.Default: _editor.Controls.Add(Hint("The key goes back to its normal function.")); break;
+            case Kind.Disabled: _editor.Controls.Add(Hint("The key does nothing (great for the Windows key in games).")); break;
             case Kind.Key: _editor.Controls.AddRange([_ctrl, _shift, _alt, _win, _usage]); break;
-            case Kind.FKey:
-                _editor.Controls.Add(_fkey);
-                _editor.Controls.Add(Ui.Note("Use these to trigger macros or apps from the Macros page.", 360));
-                break;
+            case Kind.FKey: _editor.Controls.AddRange([_fkey, Hint("Triggers a macro from the Macros page.")]); break;
             case Kind.Media: _editor.Controls.Add(_media); break;
             case Kind.Mouse:
-                _editor.Controls.AddRange([_mouse, _double, _hold, new Label { Text = "Auto-fire clicks/s (0 = off)", AutoSize = true, ForeColor = Ui.Dim, Margin = new Padding(8, 8, 4, 0) }, _autoFire]);
+                _editor.Controls.AddRange([_mouse, _double, _hold, Hint("Auto-fire clicks/s (0 = off)"), _autoFire]);
                 break;
             case Kind.Scroll: _editor.Controls.Add(_scroll); break;
             case Kind.WindowsShortcut: _editor.Controls.Add(_shortcut); break;
             case Kind.Backlight: _editor.Controls.AddRange([_backlight, _effect]); _effect.Visible = Selected<BacklightAction>(_backlight) == BacklightAction.SelectEffect; break;
-            case Kind.Character:
-                _editor.Controls.Add(_text);
-                _editor.Controls.Add(Ui.Note("Type the character to insert, e.g. € or ©.", 300));
-                break;
-            case Kind.Website: _editor.Controls.Add(_text); break;
+            case Kind.Character: _editor.Controls.AddRange([_text, Hint("Type the character, e.g. € or ©.")]); break;
+            case Kind.Website: _editor.Controls.AddRange([_text, Hint("Full address, e.g. https://twitch.tv")]); break;
         }
         foreach (var c in new ComboBox[] { _usage, _fkey, _media, _mouse, _scroll, _shortcut, _backlight, _effect })
             if (c.SelectedIndex < 0 && c.Items.Count > 0) c.SelectedIndex = 0;
     }
 
+    static Label Hint(string text) => new() { Text = text, AutoSize = true, ForeColor = Ui.Dim, Font = Ui.Body, Margin = new Padding(0, 8, 8, 0) };
+
     BindingAction? BuildAction()
     {
-        switch (Kinds[_kind.SelectedIndex].Kind)
+        switch (_kind)
         {
             case Kind.Default: return null;
             case Kind.Disabled: return new Disabled();
@@ -275,7 +340,7 @@ public sealed class KeysPage : Ui.Page
             if (action is not null) _bindings.Add(new KeyBinding(id, layer, action));
             RefreshMarks();
             ShowSelected();
-            _status.Text = $"{KeyIds.Get(id).Label}: {(action is null ? "back to its normal function" : Describe(action))}.";
+            _status.Text = $"✔ {KeyIds.Get(id).Label}: {(action is null ? "back to its normal function" : Describe(action))}.";
         }
         catch (Exception e) { _status.Text = Friendly(e); }
     }
@@ -306,7 +371,7 @@ public sealed class KeysPage : Ui.Page
                 s.SetLocks(locks);
                 s.SetGameMode(on);
             });
-            _status.Text = $"Game Mode {(on ? "on" : "off")}; blocked while on: {(locks == 0 ? "nothing" : locks.ToString())}.";
+            _status.Text = $"Game Mode {(on ? "ON" : "off")}; blocked while on: {(locks == 0 ? "nothing" : locks.ToString())}.";
         }
         catch (Exception e) { _status.Text = Friendly(e); }
     }
@@ -342,6 +407,9 @@ public sealed class KeysPage : Ui.Page
         if (id is >= KeyIds.DisplayKey1 and <= KeyIds.DisplayKey8) return $"B{id - KeyIds.DisplayKey1 + 1}";
         var label = KeyIds.Find(id)?.Label ?? "?";
         if (label.StartsWith("Numpad ", StringComparison.OrdinalIgnoreCase)) label = label[7..];
+        if (label.StartsWith("Prev", StringComparison.OrdinalIgnoreCase)) return "Prev";
+        if (label.StartsWith("Next", StringComparison.OrdinalIgnoreCase)) return "Next";
+        if (label.StartsWith("Play", StringComparison.OrdinalIgnoreCase)) return "Play";
         return label switch
         {
             "Print Screen" or "PrintScreen" => "PrtSc", "Scroll Lock" or "ScrollLock" => "ScrLk", "Pause" or "Pause/Break" => "Pause",
@@ -352,6 +420,22 @@ public sealed class KeysPage : Ui.Page
             _ => label.Length > 6 ? label[..6] : label,
         };
     }
+
+    /// <summary>Very short text for a keycap's second line.</summary>
+    static string Short(BindingAction action) => action switch
+    {
+        Disabled => "OFF",
+        StandardKey k => (k.Modifiers == KeyModifiers.None ? "" : ModifierText(k.Modifiers) + "+") + HidUsage.NameOf(k.Usage),
+        FKey f => $"F{f.Number}",
+        Media m => m.Action switch { MediaAction.VolumeUp => "Vol+", MediaAction.VolumeDown => "Vol−", MediaAction.PlayPause => "Play", MediaAction.NextTrack => "Next", MediaAction.PrevTrack => "Prev", _ => Words(m.Action.ToString()) },
+        MouseButton b => b.Button switch { MouseButtonKind.Left => "LMB", MouseButtonKind.Right => "RMB", MouseButtonKind.Middle => "MMB", _ => "Mouse" },
+        MouseScroll s => "Scroll",
+        WindowsShortcut w => Words(w.Action.ToString()),
+        Backlight => "Light",
+        AltCode a => char.ConvertFromUtf32(a.CodePoint),
+        OpenBrowser => "Web",
+        _ => "App",
+    };
 
     public static string Describe(BindingAction action) => action switch
     {

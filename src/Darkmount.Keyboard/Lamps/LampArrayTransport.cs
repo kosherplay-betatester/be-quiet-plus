@@ -21,7 +21,9 @@ public interface ILampArrayTransport : IDisposable
 public sealed class HidSharpLampArrayTransport : ILampArrayTransport
 {
     public const int VendorId = 0x373F;
-    public const int ProductId = 0x0001;
+
+    /// <summary>0 = any supported be quiet! keyboard (Dark Mount, Light Mount, Light Mount TKL).</summary>
+    public const int ProductId = 0;
 
     readonly HidStream _stream;
 
@@ -44,7 +46,10 @@ public sealed class HidSharpLampArrayTransport : ILampArrayTransport
     /// <summary>Finds the LampArray collection of the keyboard without opening it (read-only enumeration).</summary>
     public static (HidDevice Device, byte[] Descriptor)? Find(int vendorId = VendorId, int productId = ProductId)
     {
-        foreach (var device in DeviceList.Local.GetHidDevices(vendorId, productId))
+        var devices = productId != 0
+            ? DeviceList.Local.GetHidDevices(vendorId, productId)
+            : DeviceList.Local.GetHidDevices(vendorId).Where(d => Darkmount.QLink.KeyboardModel.ForProductId(d.ProductID) is not null);
+        foreach (var device in devices)
         {
             byte[] descriptor;
             try

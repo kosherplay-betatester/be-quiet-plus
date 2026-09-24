@@ -23,6 +23,7 @@ public sealed class MacrosPage : Ui.Page
     readonly Button _record;
     readonly Label _status = Ui.Note("", 720);
     MacroRecorder? _recorder;
+    Macro? _recordingInto;
     bool _loading;
 
     public MacrosPage(MacroManager manager, KeyboardService keyboard)
@@ -137,6 +138,7 @@ public sealed class MacrosPage : Ui.Page
 
     void NewMacro()
     {
+        if (_recorder is not null) return;
         var used = new MacroManagerView(_macros).FreeTrigger();
         _macros.Add(new Macro { Name = $"Macro {_macros.Count + 1}", Trigger = used });
         RefreshList();
@@ -145,7 +147,7 @@ public sealed class MacrosPage : Ui.Page
 
     void DeleteMacro()
     {
-        if (Current is null) return;
+        if (Current is null || _recorder is not null) return;
         _macros.RemoveAt(_list.SelectedIndex);
         RefreshList();
         ShowMacro();
@@ -219,6 +221,8 @@ public sealed class MacrosPage : Ui.Page
         if (_recorder is null)
         {
             _manager.SuspendTriggers();
+            _recordingInto = Current;
+            _list.Enabled = false; // the steps go to the macro recording started on
             _recorder = new MacroRecorder();
             _recorder.Start();
             _record.Text = "■ Stop recording";
@@ -230,8 +234,12 @@ public sealed class MacrosPage : Ui.Page
         _recorder = null;
         _manager.ResumeTriggers();
         _record.Text = "● Record";
+        _list.Enabled = true;
+        var target = _recordingInto;
+        _recordingInto = null;
+        if (target is null || !_macros.Contains(target)) { _status.Text = "The macro was removed while recording."; return; }
         // The final click on "Stop recording" is not a keystroke, so nothing needs trimming.
-        Current.Steps.AddRange(steps);
+        target.Steps.AddRange(steps);
         ShowSteps();
         _status.Text = $"Recorded {steps.Count} step(s).";
     }

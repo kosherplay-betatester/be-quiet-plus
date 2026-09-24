@@ -223,6 +223,25 @@ public class QLinkTests
     }
 
     [Fact]
+    public void A_notification_between_continuation_frames_does_not_truncate_the_reply()
+    {
+        var payload = Enumerable.Range(0, 150).Select(i => (byte)i).ToArray();
+        var t = new FakeTransport
+        {
+            Responder = req =>
+            {
+                var reply = FakeTransport.Reply(req, payload).ToList();
+                var notification = Frame.Build(req.Sid, 0, Features.Keyboard, 2, [0, 1]).Single();
+                reply.Insert(1, notification); // Game Mode toggled mid-transfer
+                return reply;
+            },
+        };
+        using var q = new QLinkClient(t);
+
+        Assert.Equal(payload, q.Send(Features.MediaDock, MediaDockCommands.GetImage, new byte[9]));
+    }
+
+    [Fact]
     public void Timeout_propagates_as_TimeoutException()
     {
         var t = new FakeTransport { Responder = _ => null };

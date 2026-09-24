@@ -59,18 +59,20 @@ public sealed class DisplayKeysPage : Ui.Page
         _status.Text = "Reading the key images from the keyboard (takes a little while)…";
         try
         {
-            await _keyboard.Run(q =>
+            // Read everything on the keyboard thread, then update the window here on the UI thread (the page may
+            // have been closed meanwhile; UI calls inside the keyboard work would look like a device failure).
+            var images = await _keyboard.Run(q =>
             {
                 var keys = new DisplayKeys(q);
                 DisplayKeyBackup.BackupOnce(keys);
-                for (int i = 0; i < DisplayKeys.Count; i++)
-                {
-                    var jpeg = keys.ReadStoredJpeg(i);
-                    DisplayKeyCache.Save(i, jpeg);
-                    int index = i;
-                    BeginInvoke(() => Show(index, jpeg));
-                }
+                return Enumerable.Range(0, DisplayKeys.Count).Select(keys.ReadStoredJpeg).ToArray();
             });
+            if (IsDisposed) return;
+            for (int i = 0; i < images.Length; i++)
+            {
+                DisplayKeyCache.Save(i, images[i]);
+                Show(i, images[i]);
+            }
             _status.Text = "Up to date. Click a key to change its picture.";
         }
         catch (Exception e) { _status.Text = Friendly(e); }

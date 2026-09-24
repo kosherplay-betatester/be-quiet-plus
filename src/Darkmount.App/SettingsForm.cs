@@ -59,6 +59,9 @@ public sealed class SettingsForm : Form
         _status2 = status;
         _edit = Clone(current);
 
+        // Everything below is laid out in 96-DPI units; WinForms scales it to the monitor (e.g. 200 % on 4K).
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
         Text = "Darkmount Hub";
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(1140, 720);

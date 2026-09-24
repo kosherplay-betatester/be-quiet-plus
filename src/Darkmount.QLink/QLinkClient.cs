@@ -47,12 +47,15 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
                 if (f.Status != 0)
                     throw new QLinkException((QLinkStatus)f.Status, $"{feature}/{command} failed: {(QLinkStatus)f.Status}");
 
+                // Only continuation frames decide whether more is coming: a notification can arrive in between.
                 var result = f.Data;
-                while (f.HasMore)
+                bool more = f.HasMore;
+                while (more)
                 {
-                    f = ReadFrame(Remaining(sw, timeoutMs));
-                    if (!f.IsContinuation) continue;
-                    result = [.. result, .. f.Data];
+                    var c = ReadFrame(Remaining(sw, timeoutMs));
+                    if (!c.IsContinuation) continue;
+                    result = [.. result, .. c.Data];
+                    more = c.HasMore;
                 }
                 return result;
             }

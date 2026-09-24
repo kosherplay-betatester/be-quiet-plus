@@ -276,7 +276,8 @@ public sealed class TrayApp : ApplicationContext
     void RestartPipeline()
     {
         _pipeline.FrameRendered -= OnFrame;
-        _pipeline.Dispose();
+        var old = _pipeline;
+        Task.Run(old.Dispose); // may wait for an upload in progress; never on the UI thread
         _pipeline = new FramePipeline(_dock, () => _settings) { DockInUse = _dockActivity.ActiveWithin };
         _pipeline.FrameRendered += OnFrame;
         _pipeline.Start();

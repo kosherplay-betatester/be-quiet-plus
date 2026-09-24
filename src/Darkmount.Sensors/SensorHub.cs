@@ -9,7 +9,7 @@ public sealed class SensorHub : IDisposable
     public const string HintHwInfo = "HWiNFO: enable 'Shared Memory Support' in HWiNFO settings (optional)";
     public const string HintAfterburner = "Start MSI Afterburner for CPU/GPU/FPS data";
     public const string HintRtss = "Start RivaTuner Statistics Server for game detection";
-    public const string HintFpsLow = "Afterburner: enable 'Framerate 0.1% low' in Monitoring settings";
+    public const string HintFpsLow = "Afterburner: enable 'Framerate 1% low' in Monitoring settings";
 
     /// <summary>How long a game stays detected while it is not in the foreground (alt-tab debounce).</summary>
     private const uint GameDebounceMs = 5000;
@@ -23,9 +23,12 @@ public sealed class SensorHub : IDisposable
     private int _lastGamePid;
     private uint _lastGameTicks;
 
+    readonly FrameTimeSampler? _frames;
+
     public SensorHub(SensorOptions options)
         : this(options, () => SystemInfo.RamTotalMb, () => SystemInfo.RamUsedMb, () => SystemInfo.VramTotalMb)
     {
+        _frames = new FrameTimeSampler();
     }
 
     internal SensorHub(SensorOptions options, Func<double?> ramTotalMb, Func<double?> ramUsedMb, Func<double?> vramTotalMb)
@@ -63,13 +66,18 @@ public sealed class SensorHub : IDisposable
             game = DetectGame(apps ?? [], foregroundPid, nowTicks);
 
         double? fps = null, fpsLow = null;
-        string fpsLowLabel = "0.1% low";
+        string fpsLowLabel = "1% low";
+        if (_frames is not null) _frames.TargetPid = game?.Pid ?? 0;
         if (game is not null)
         {
             fps = m?.Fps ?? (game.Fps > 0 ? game.Fps : null);
-            fpsLow = m?.FpsLow;
-            if (m is not null) fpsLowLabel = m.FpsLowLabel;
-            if (mahmData is not null && !mahmData.HasFpsLowEntries) hints.Add(HintFpsLow);
+            // Our own 1% low from RivaTuner frame times (works without any Afterburner setup); Afterburner's as fallback.
+            if (_frames?.Lows() is { Low1: { } own }) fpsLow = own;
+            else
+            {
+                fpsLow = m?.FpsLow;
+                if (m is not null) fpsLowLabel = m.FpsLowLabel;
+            }
         }
 
         return new Snapshot
@@ -123,6 +131,7 @@ public sealed class SensorHub : IDisposable
 
     public void Dispose()
     {
-        // Shared memory is opened and closed per sample; nothing is held between calls.
+        // Shared memory is opened and closed per sample; only the frame-time sampler keeps a thread.
+        _frames?.Dispose();
     }
 }
