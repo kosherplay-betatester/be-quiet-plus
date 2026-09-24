@@ -291,9 +291,24 @@ public sealed class LightingStudioPage : Ui.Page
         ShowLayer();
     }
 
+    /// <summary>
+    /// The keyboard picture fills the width of the settings page (the studio sits inside the Lighting page, so it finds
+    /// the scrolling page host rather than relying on its own parent's resize events).
+    /// </summary>
+    void FitKeyboard()
+    {
+        Control? host = Parent;
+        while (host is not null && host is not ScrollableControl { AutoScroll: true }) host = host.Parent;
+        if (host is null || _view.Parent is null) return;
+        int left = host.PointToClient(_view.Parent.PointToScreen(_view.Location)).X;
+        int width = Math.Max(900, host.ClientSize.Width - left - 28);
+        if (Math.Abs(width - _view.Width) > 4) _view.Size = new Size(width, (int)(width * 0.37));
+    }
+
     void Preview()
     {
         if (!Visible) { _shown = false; return; }
+        FitKeyboard();
         if (!_shown) { _shown = true; OnShown(); }
         else if (_deviceLayout().Count > 0 && _previewLayout.Any(p => p.LampId >= SyntheticKeyLamp)) BuildView(); // keyboard appeared
         var live = _deviceLayout().Count > 0 && _get().RgbEnabled ? _liveFrame() : null;

@@ -77,7 +77,7 @@ public sealed class SettingsForm : Form
         var sidebar = new Panel { Dock = DockStyle.Left, Width = 262, BackColor = Ui.Panel };
         var brand = new Label { Text = "OverMount", Font = Ui.Title, ForeColor = Ui.Text, AutoSize = true, Margin = new Padding(6, 4, 0, 14) };
         _nav.Controls.Add(brand);
-        var previewBox = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 196, FlowDirection = FlowDirection.TopDown, BackColor = Ui.Panel };
+        var previewBox = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 196, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Ui.Panel };
         previewBox.Controls.Add(new Label { Text = "LIVE DOCK", ForeColor = Ui.Dim, Font = new Font("Segoe UI Semibold", 8.5f), AutoSize = true, Margin = new Padding(12, 8, 0, 0) });
         previewBox.Controls.Add(_preview);
         sidebar.Controls.Add(_nav);
@@ -157,10 +157,18 @@ public sealed class SettingsForm : Form
         if (i >= 0) Select(i);
     }
 
+    /// <remarks>
+    /// Pages load their data when they become visible. A control added to the window for the first time doesn't raise
+    /// VisibleChanged, so pages are hidden before they're added and shown after: every page gets a "shown" event.
+    /// </remarks>
     void Select(int index)
     {
+        foreach (Control old in _content.Controls) old.Visible = false;
         _content.Controls.Clear();
-        _content.Controls.Add(_pages[index].Page);
+        var page = _pages[index].Page;
+        page.Visible = false;
+        _content.Controls.Add(page);
+        page.Visible = true;
         for (int i = 0; i < _pages.Count; i++)
         {
             _pages[i].Button.BackColor = i == index ? Ui.PanelHover : Ui.Panel;

@@ -121,14 +121,19 @@ public sealed class KeysPage : Ui.Page
         SetLayer(false);
         _view.Select([KeyIds.CapsLock]);
         SelectKind(Kind.Default);
+        Control? sizedBy = null;
         ParentChanged += (_, _) =>
         {
-            if (Parent is null) return;
-            Parent.SizeChanged += (_, _) => FitKeyboard();
+            if (sizedBy is not null) sizedBy.SizeChanged -= OnParentResized;
+            sizedBy = Parent;
+            if (sizedBy is null) return;
+            sizedBy.SizeChanged += OnParentResized;
             FitKeyboard();
         };
         VisibleChanged += async (_, _) => { if (Visible && !_loaded) await Load(); };
     }
+
+    void OnParentResized(object? sender, EventArgs e) => FitKeyboard();
 
     /// <summary>The keyboard fills the page width (and keeps its proportions).</summary>
     void FitKeyboard()
