@@ -23,6 +23,8 @@ public sealed class TrayApp : ApplicationContext
     readonly KeyboardService _keyboard;
     readonly DockActivityWatcher _dockActivity = new();
     readonly RgbEngine _rgb;
+    readonly Macros.MacroManager _macros = new();
+    readonly ProfileManager _profiles;
 
     AppSettings _settings;
     FramePipeline _pipeline;
@@ -41,6 +43,7 @@ public sealed class TrayApp : ApplicationContext
         _pipeline = new FramePipeline(_dock, () => _settings) { DockInUse = _dockActivity.ActiveWithin };
         _pipeline.FrameRendered += OnFrame;
         _keyboard = new KeyboardService(_dock);
+        _profiles = new ProfileManager(_keyboard, () => _settings, ApplySettings);
         _rgb = new RgbEngine(() => _settings, () => _pipeline.LastSnapshot?.CpuTemp, () => _pipeline.LastAlerts.Count > 0);
 
         _tray = new NotifyIcon { Icon = CreateIcon(), Text = "Darkmount Hub", Visible = true, ContextMenuStrip = BuildMenu() };
@@ -55,7 +58,11 @@ public sealed class TrayApp : ApplicationContext
         ThreadPool.RegisterWaitForSingleObject(exitSignal, (_, _) => _ui.Post(_ => ExitThread(), null), null, Timeout.Infinite, executeOnlyOnce: true);
 
         _tickTimer = new System.Threading.Timer(_ => _dock.Tick(), null, 0, 1000);
-        _uiTimer.Tick += (_, _) => UpdateStatus();
+        _uiTimer.Tick += async (_, _) =>
+        {
+            UpdateStatus();
+            await _profiles.OnGame(_pipeline.LastSnapshot?.GameName); // per-game profiles
+        };
         _uiTimer.Start();
         _pipeline.Start();
         _rgb.Start();
@@ -90,6 +97,7 @@ public sealed class TrayApp : ApplicationContext
             _status, new ToolStripSeparator(),
             _auto, _stats, _anim, _dockDefault, animations, new ToolStripSeparator(),
             _pause, new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()), _autostart,
+            new ToolStripMenuItem("Stop all running macros", null, (_, _) => _macros.StopAll()),
             new ToolStripMenuItem("Open log folder", null, (_, _) => OpenLogs()), new ToolStripSeparator(),
             new ToolStripMenuItem("Exit", null, (_, _) => ExitThread()),
         ]);
@@ -149,7 +157,8 @@ public sealed class TrayApp : ApplicationContext
     void ShowSettings()
     {
         if (_settingsForm is { IsDisposed: false }) { _settingsForm.Activate(); return; }
-        _settingsForm = new SettingsForm(_settings, ApplySettings, StatusReport, _keyboard, _dock);
+        _settingsForm = new SettingsForm(_settings, ApplySettings, StatusReport, _keyboard, _dock, _macros,
+            _profiles, () => _pipeline.LastSnapshot?.GameName);
         _settingsForm.Show();
     }
 
@@ -285,6 +294,7 @@ public sealed class TrayApp : ApplicationContext
         _tickTimer.Dispose();
         _pipeline.Dispose();
         _rgb.Dispose();
+        _macros.Dispose();
         _dock.Dispose();
         _hotkey.Dispose();
         _dockActivity.Dispose();

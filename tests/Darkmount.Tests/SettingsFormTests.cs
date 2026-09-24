@@ -19,7 +19,9 @@ public class SettingsFormTests
 #pragma warning restore WFO5001
                 var dock = new Darkmount.Dock.DockConnection(() => null,
                     new Darkmount.Dock.DockConfigGuard(Path.Combine(Path.GetTempPath(), $"dmh-{Guid.NewGuid():N}.hex")), () => false);
-                using var form = new SettingsForm(new AppSettings(), _ => { }, () => "status", new KeyboardService(dock), dock);
+                using var macros = new Darkmount.App.Macros.MacroManager(Path.Combine(Path.GetTempPath(), $"dmh-{Guid.NewGuid():N}.json"));
+                using var form = new SettingsForm(new AppSettings(), _ => { }, () => "status", new KeyboardService(dock), dock, macros,
+                    new ProfileManager(new KeyboardService(dock), () => new AppSettings(), _ => { }), () => null);
                 form.StartPosition = FormStartPosition.Manual;
                 form.Location = new Point(-3000, -3000);
                 form.Show();

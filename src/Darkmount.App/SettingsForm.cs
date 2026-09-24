@@ -51,7 +51,8 @@ public sealed class SettingsForm : Form
 
     /// <param name="status">Returns a multi-line status report for the Status page (null hides the page).</param>
     public SettingsForm(AppSettings current, Action<AppSettings> apply, Func<string>? status = null,
-        KeyboardService? keyboard = null, Darkmount.Dock.DockConnection? dock = null)
+        KeyboardService? keyboard = null, Darkmount.Dock.DockConnection? dock = null, Macros.MacroManager? macros = null,
+        ProfileManager? profiles = null, Func<string?>? currentGame = null)
     {
         _apply = apply;
         _status2 = status;
@@ -88,6 +89,8 @@ public sealed class SettingsForm : Form
         {
             AddPage("Lighting", new Pages.LightingPage(keyboard));
             AddPage("Keys", new Pages.KeysPage(keyboard));
+            if (macros is not null) AddPage("Macros", new Pages.MacrosPage(macros, keyboard));
+            if (profiles is not null) AddPage("Profiles", new Pages.ProfilesPage(profiles, currentGame ?? (() => null)));
             AddPage("Display keys", new Pages.DisplayKeysPage(keyboard));
         }
         if (dock is not null) AddPage("Dock settings", new Pages.DockSettingsPage(dock));

@@ -93,6 +93,56 @@ if (args.Contains("--readkeys"))
     return 0;
 }
 
+if (args.Contains("--size"))
+{
+    // Does the dock accept a smaller image (e.g. 160x120)? Uploads 3 numbered frames of that size.
+    int w = int.Parse(Arg("--w", "160")), h = int.Parse(Arg("--h", "120"));
+    var md = new MediaDock(q);
+    var guard = new DockConfigGuard(DockConfigGuard.DefaultPath);
+    var original = guard.Resolve(md.GetConfig());
+    SkiaSharp.SKColor[] colours = [SkiaSharp.SKColors.DarkRed, SkiaSharp.SKColors.DarkGreen, SkiaSharp.SKColors.DarkBlue];
+    try
+    {
+        for (int f = 0; f < 3; f++)
+        {
+            using var bmp = new SkiaSharp.SKBitmap(w, h, SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Opaque);
+            using (var cv = new SkiaSharp.SKCanvas(bmp))
+            {
+                cv.Clear(colours[f]);
+                using var font = new SkiaSharp.SKFont(SkiaSharp.SKTypeface.FromFamilyName("Segoe UI", SkiaSharp.SKFontStyle.Bold), h * 0.6f);
+                using var ink = new SkiaSharp.SKPaint { Color = SkiaSharp.SKColors.White, IsAntialias = true };
+                cv.DrawText($"{f + 1}", w / 2f, h * 0.75f, SkiaSharp.SKTextAlign.Center, font, ink);
+                cv.DrawRect(0, 0, w * 0.15f, h * 0.15f, new SkiaSharp.SKPaint { Color = SkiaSharp.SKColors.White });
+            }
+            var px = new byte[w * h * 2];
+            var span = bmp.GetPixelSpan();
+            for (int i = 0, o = 0; i < span.Length; i += 4, o += 2)
+            {
+                int v = (span[i] >> 3) << 11 | (span[i + 1] >> 2) << 5 | (span[i + 2] >> 3);
+                px[o] = (byte)v; px[o + 1] = (byte)(v >> 8);
+            }
+            var sw = Stopwatch.StartNew();
+            string result;
+            try
+            {
+                md.SetImage(MediaDock.SlotScreensaver, 0, MediaDock.ImageHeader(w, h, px.Length), 8000);
+                md.SetImageData(MediaDock.SlotScreensaver, px);
+                result = "accepted";
+            }
+            catch (Exception e) when (e is TimeoutException or QLinkException) { result = $"FAILED ({e.Message})"; }
+            if (f == 0) md.SetConfig(DockConfigGuard.Running(original));
+            Console.WriteLine($"frame {f + 1} ({w}x{h}, {px.Length / 1024} KB): {result} in {sw.ElapsedMilliseconds} ms");
+            for (int i = 0; i < 12; i++) { q.KeepAlive(); q.Pump(500); }
+        }
+    }
+    finally
+    {
+        md.SetConfig(original);
+        Console.WriteLine("Restored the dock settings.");
+    }
+    return 0;
+}
+
 if (args.Contains("--cycle"))
 {
     // Numbered colour frames with the app's real uploader; the dock is set exactly like the app sets it.
