@@ -107,6 +107,8 @@ public static class SceneEffects
             { DefaultColorMode = SceneColorMode.Gradient, DefaultColors = ["FF8AD8", "8AE8FF", "FFF08A", "B89AFF"] },
         new(SceneEffect.ScreenSync, "Screen sync", "Ambilight: keys mirror the matching region of the screen, the edge lights its border.",
             NoModes, NoDirections, false, false, false, false, true, NeedsScreen: true),
+        new(SceneEffect.PerKey, "Per-key colours", "Paint every key and edge LED its own colour, like IO Center's per-key lighting. " +
+            "Unpainted lamps show the layers below.", NoModes, NoDirections, false, false, false, false, false),
     ];
 
     static readonly Dictionary<SceneEffect, SceneEffectInfo> ByEffect = All.ToDictionary(i => i.Effect);

@@ -4,14 +4,14 @@ using System.Text.Json.Serialization;
 namespace Darkmount.App.Macros;
 
 /// <summary>
-/// Macros live in %APPDATA%\DarkmountHub\macros.json. <see cref="Load"/> and <see cref="Save"/> never throw:
+/// Macros live in %APPDATA%\OverMount\macros.json. <see cref="Load"/> and <see cref="Save"/> never throw:
 /// an unreadable file loads as an empty list (and is copied to macros.json.corrupt so a later save can't destroy it),
 /// and saving writes a temp file and moves it over the old one.
 /// </summary>
 public static class MacroStore
 {
     public static string DefaultPath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DarkmountHub", "macros.json");
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OverMount", "macros.json");
 
     static readonly object Gate = new();
 

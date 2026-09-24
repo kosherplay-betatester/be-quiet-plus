@@ -26,7 +26,7 @@ public class SettingsFormTests
                         "Gaming", "3 active",
                         [
                             new("Keyboard connected", true, false, "Dark Mount is connected."),
-                            new("IO Center is closed", false, false, "IO Center is running, so Darkmount Hub has paused.", "Close IO Center", () => { }),
+                            new("IO Center is closed", false, false, "IO Center is running, so OverMount has paused.", "Close IO Center", () => { }),
                             new("HWiNFO shared memory (optional)", false, true, "Optional, more precise sensors."),
                         ]));
                 form.StartPosition = FormStartPosition.Manual;

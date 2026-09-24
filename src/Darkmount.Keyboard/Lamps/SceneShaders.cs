@@ -105,6 +105,7 @@ internal static class SceneShaders
         SceneEffect.Lava => Lava(f),
         SceneEffect.Candy => Candy(f),
         SceneEffect.ScreenSync => ScreenSync(f),
+        SceneEffect.PerKey => PerKey(f),
         _ => (in Pixel _) => Rgba.Clear,
     };
 
@@ -168,6 +169,22 @@ internal static class SceneShaders
     }
 
     static Rgba Opaque(Rgbf c) => new(c, 1);
+
+    /// <summary>Painted keys and edge LEDs in their own colour; everything else transparent.</summary>
+    static Shader PerKey(LayerFrame f)
+    {
+        static Dictionary<int, Rgbf> Parse(Dictionary<int, string>? colors)
+        {
+            var parsed = new Dictionary<int, Rgbf>();
+            foreach (var (id, hex) in colors ?? [])
+                if (Rgbf.TryParse(hex, out var c)) parsed[id] = c;
+            return parsed;
+        }
+        var keys = Parse(f.Layer.KeyColors);
+        var edges = Parse(f.Layer.EdgeColors);
+        if (keys.Count == 0 && edges.Count == 0) return (in Pixel _) => Rgba.Clear;
+        return (in Pixel p) => (p.IsKey ? keys.TryGetValue(p.KeyId, out var c) : edges.TryGetValue(p.LampId, out c)) ? Opaque(c) : Rgba.Clear;
+    }
 
     // ------------------------------------------------------------------ classic effects
 

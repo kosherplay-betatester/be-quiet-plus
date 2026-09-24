@@ -22,11 +22,11 @@ public sealed record Snapshot
     /// <summary>Average frame rate of the detected game.</summary>
     public double? Fps { get; init; }
 
-    /// <summary>Low frame rate (0.1 % low when available, otherwise 1 % low).</summary>
+    /// <summary>Low frame rate: OverMount's own 1 % low from RivaTuner frame times, else Afterburner's low.</summary>
     public double? FpsLow { get; init; }
 
     /// <summary>Label for <see cref="FpsLow"/>, e.g. "0.1% low" or "1% low".</summary>
-    public string FpsLowLabel { get; init; } = "0.1% low";
+    public string FpsLowLabel { get; init; } = "1% low";
 
     /// <summary>Executable name of the running game, or null when no game is detected.</summary>
     public string? GameName { get; init; }

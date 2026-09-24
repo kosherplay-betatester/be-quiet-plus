@@ -97,7 +97,7 @@ public class ScreenRenderTests
     [Fact]
     public void InGame_ShowsFpsRow()
     {
-        var s = Typical with { Fps = 144, FpsLow = 97, FpsLowLabel = "0.1% low", GameName = "Cyberpunk2077.exe" };
+        var s = Typical with { Fps = 144, FpsLow = 97, FpsLowLabel = "1% low", GameName = "Cyberpunk2077.exe" };
         using var bmp = Render(new ScreenContext { Snapshot = s, History = Waves(true) }, "stats-game");
         AssertValidFrame(bmp);
     }

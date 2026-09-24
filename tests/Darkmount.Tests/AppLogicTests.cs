@@ -117,6 +117,52 @@ public class AppLogicTests
         Assert.Equal(ScreenMode.Animation, AutoSwitcher.NextMode(ScreenMode.Auto));
         Assert.Equal(ScreenMode.DockDefault, AutoSwitcher.NextMode(ScreenMode.Animation));
         Assert.Equal(ScreenMode.Auto, AutoSwitcher.NextMode(ScreenMode.DockDefault));
+        Assert.Equal(ScreenMode.Animation, AutoSwitcher.NextMode(ScreenMode.Clock));
+    }
+
+    [Fact]
+    public void Fixed_modes_show_the_new_screens()
+    {
+        var sw = new AutoSwitcher();
+
+        Assert.Equal(ScreenKind.NowPlaying, sw.Update(true, new AppSettings { Mode = ScreenMode.NowPlaying }));
+        Assert.Equal(ScreenKind.Clock, sw.Update(false, new AppSettings { Mode = ScreenMode.Clock }));
+        Assert.Equal(ScreenKind.Network, sw.Update(false, new AppSettings { Mode = ScreenMode.Network }));
+        Assert.Equal(ScreenKind.FocusTimer, sw.Update(false, new AppSettings { Mode = ScreenMode.FocusTimer }));
+    }
+
+    [Fact]
+    public void Smart_screens_show_a_new_song_for_a_while_and_the_running_focus_timer()
+    {
+        var sw = new AutoSwitcher();
+        var settings = new AppSettings { Mode = ScreenMode.Auto, DefaultScreen = ScreenKind.Clock };
+
+        Assert.Equal(ScreenKind.NowPlaying, sw.Update(false, settings, new ScreenSignals(T0, NewTrack: true)));
+        Assert.Equal(ScreenKind.NowPlaying, sw.Update(false, settings, new ScreenSignals(T0.AddSeconds(15))));
+        Assert.Equal(ScreenKind.Clock, sw.Update(false, settings, new ScreenSignals(T0 + AutoSwitcher.NowPlayingHold)));
+        Assert.Equal(ScreenKind.FocusTimer, sw.Update(false, settings, new ScreenSignals(T0.AddMinutes(1), FocusTimerActive: true)));
+        Assert.Equal(ScreenKind.Stats, sw.Update(true, settings, new ScreenSignals(T0.AddMinutes(1), FocusTimerActive: true))); // games win
+
+        settings.SmartScreens = false;
+        Assert.Equal(ScreenKind.Clock, sw.Update(false, settings, new ScreenSignals(T0.AddMinutes(2), FocusTimerActive: true, NewTrack: true)));
+    }
+
+    [Fact]
+    public void Rotation_takes_turns_in_fixed_time_slots()
+    {
+        var sw = new AutoSwitcher();
+        var settings = new AppSettings
+        {
+            Mode = ScreenMode.Auto, RotateScreens = true, RotateSeconds = 30, Rotation = [ScreenKind.Stats, ScreenKind.Clock, ScreenKind.Network],
+        };
+        var start = new DateTime(2026, 1, 1, 12, 0, 0); // a multiple of 30 s
+
+        Assert.Equal(ScreenKind.Stats, sw.Update(false, settings, new ScreenSignals(start)));
+        Assert.Equal(ScreenKind.Stats, sw.Update(false, settings, new ScreenSignals(start.AddSeconds(29))));
+        Assert.Equal(ScreenKind.Clock, sw.Update(false, settings, new ScreenSignals(start.AddSeconds(30))));
+        Assert.Equal(ScreenKind.Network, sw.Update(false, settings, new ScreenSignals(start.AddSeconds(60))));
+        Assert.Equal(ScreenKind.Stats, sw.Update(false, settings, new ScreenSignals(start.AddSeconds(90))));
+        Assert.Equal(ScreenKind.Stats, sw.Update(true, settings, new ScreenSignals(start.AddSeconds(30)))); // in game: stats
     }
 
     // ---------------------------------------------------------------- Settings

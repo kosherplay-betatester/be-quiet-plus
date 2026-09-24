@@ -99,13 +99,13 @@ public class SensorParsingTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Mahm_PointOnePercentLow_PreferredOverOnePercent()
+    public void Mahm_OnePercentLow_PreferredOverPointOnePercent()
     {
         var data = MahmReader.Parse(Mahm(
             M("Framerate", 120), M("Framerate 1% Low", 80), M("Framerate 0.1% Low", 60)))!;
         var s = data.ToSnapshot(new SensorOptions());
-        Assert.Equal(60, s.FpsLow);
-        Assert.Equal("0.1% low", s.FpsLowLabel);
+        Assert.Equal(80, s.FpsLow);
+        Assert.Equal("1% low", s.FpsLowLabel);
     }
 
     [Fact]

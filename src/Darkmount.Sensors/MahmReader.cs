@@ -74,8 +74,8 @@ public sealed partial class MahmData
             GpuPower = GpuValue(gpu, "power"),
             VramUsedMb = GpuValue(gpu, "memory usage"),
             Fps = Value("Framerate"),
-            FpsLow = pointOne ?? one,
-            FpsLowLabel = pointOne is not null || one is null ? "0.1% low" : "1% low",
+            FpsLow = one ?? pointOne, // 1 % low is the number players compare; 0.1 % only when it's all Afterburner offers
+            FpsLowLabel = one is not null || pointOne is null ? "1% low" : "0.1% low",
         };
     }
 

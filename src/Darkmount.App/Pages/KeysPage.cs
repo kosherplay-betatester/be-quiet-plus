@@ -51,7 +51,7 @@ public sealed class KeysPage : Ui.Page
 
     public KeysPage(KeyboardService keyboard)
         : base("Key bindings", "Click any key, pick what it should do, hit APPLY. Stored on the keyboard — works everywhere, " +
-                               "even without Darkmount Hub. Dock buttons use these in the dock's CUSTOM mode.")
+                               "even without OverMount. Dock buttons use these in the dock's CUSTOM mode.")
     {
         _keyboard = keyboard;
         _view.KeyShapes = KeyGeometry.Layout(PhysicalLayout.Ansi, NumpadSide.Right, includeDock: true)
@@ -379,7 +379,7 @@ public sealed class KeysPage : Ui.Page
     async Task RestoreFactory()
     {
         if (MessageBox.Show(this, "Remove all custom key bindings and restore the be quiet! factory bindings?\n" +
-                "(Your original bindings are backed up and can be restored from the Profiles page.)", "Darkmount Hub",
+                "(Your original bindings are backed up and can be restored from the Profiles page.)", "OverMount",
                 MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
         _status.Text = "Restoring factory bindings…";
         try
@@ -402,7 +402,8 @@ public sealed class KeysPage : Ui.Page
     // ---------------------------------------------------------------- helpers
 
     /// <summary>Compact key-cap text for the keyboard picture.</summary>
-    static string ShortLabel(byte id)
+    /// <summary>A keycap-sized label for a key id (shared with the Lighting studio).</summary>
+    internal static string ShortLabel(byte id)
     {
         if (id is >= KeyIds.DisplayKey1 and <= KeyIds.DisplayKey8) return $"B{id - KeyIds.DisplayKey1 + 1}";
         var label = KeyIds.Find(id)?.Label ?? "?";

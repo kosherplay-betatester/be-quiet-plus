@@ -398,7 +398,7 @@ public sealed class MacroStoreTests : IDisposable
 
     [Fact]
     public void Default_path_is_in_appdata()
-        => Assert.Equal(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DarkmountHub", "macros.json"), MacroStore.DefaultPath);
+        => Assert.Equal(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OverMount", "macros.json"), MacroStore.DefaultPath);
 }
 
 // ======================================================================== library + model helpers

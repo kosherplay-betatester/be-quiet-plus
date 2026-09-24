@@ -27,7 +27,7 @@ public sealed class MacrosPage : Ui.Page
     bool _loading;
 
     public MacrosPage(MacroManager manager, KeyboardService keyboard)
-        : base("Macros", "Macros run on your PC while Darkmount Hub is running. Each macro has a trigger key (F13–F24, " +
+        : base("Macros", "Macros run on your PC while OverMount is running. Each macro has a trigger key (F13–F24, " +
                          "which normal keyboards don't have); bind any key of your Dark Mount — e.g. a display key — to it below.")
     {
         _manager = manager;
@@ -80,7 +80,7 @@ public sealed class MacrosPage : Ui.Page
         save.Controls.AddRange([Ui.Button("Save macros", (_, _) => SaveAll(), primary: true), Ui.Button("Stop all running macros", (_, _) => _manager.StopAll())]);
         AddFull(save);
         AddFull(_status);
-        AddFull(Ui.Note("Windows won't let macros type into apps running as administrator unless Darkmount Hub also runs as " +
+        AddFull(Ui.Note("Windows won't let macros type into apps running as administrator unless OverMount also runs as " +
                         "administrator. Games with anti-cheat may ignore simulated input.", 720));
 
         foreach (var c in new ComboBox[] { _trigger, _mode }) c.SelectedIndex = 0;
@@ -289,7 +289,7 @@ public sealed class MacrosPage : Ui.Page
     {
         using var f = new Form
         {
-            Text = "Darkmount Hub", Width = 460, Height = 170, FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
+            Text = "OverMount", Width = 460, Height = 170, FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
             MaximizeBox = false, MinimizeBox = false, BackColor = Ui.Back, ForeColor = Ui.Text, Font = Ui.Body,
         };
         var box = new TextBox { Text = initial, Left = 16, Top = 40, Width = 410 };

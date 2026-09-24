@@ -37,7 +37,7 @@ public static class KeyboardBackup
     public const string FileName = "keyboard-backup.json";
 
     public static string DefaultFolder { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DarkmountHub", "keyboard-backup");
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OverMount", "keyboard-backup");
 
     static readonly JsonSerializerOptions Options = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
 

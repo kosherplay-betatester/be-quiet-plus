@@ -22,9 +22,10 @@ public sealed record RgbEffectSettings
 
 /// <summary>
 /// A lamp and its normalised position on the keyboard (0..1 in both axes). <see cref="KeyId"/> is the Dark Mount key id
-/// (<see cref="KeyIds"/>) of a key lamp when known, else 0.
+/// (<see cref="KeyIds"/>) of a key lamp when known, else 0. <see cref="Edge"/> is the edge-light number (1..64 around the
+/// keyboard, 65..96 around the numpad, clockwise from each top-left corner) of a Dark Mount edge LED, else 0.
 /// </summary>
-public readonly record struct LampPoint(int LampId, double X, double Y, bool IsKey, int KeyId = 0);
+public readonly record struct LampPoint(int LampId, double X, double Y, bool IsKey, int KeyId = 0, int Edge = 0);
 
 /// <summary>
 /// One animation frame. Whole-keyboard effects set <see cref="All"/> (one range report, very fast); per-key
@@ -112,19 +113,22 @@ public static class RgbEffects
     /// Normalised lamp positions: keys from the keyboard geometry (accurate) with their Dark Mount key id, other lamps
     /// (edge lights) from the positions the firmware reports. The ISO-only key (105) gets its ISO position.
     /// </summary>
-    public static IReadOnlyList<LampPoint> Layout(IReadOnlyList<LampInfo> lamps, LampMap map)
+    public static IReadOnlyList<LampPoint> Layout(IReadOnlyList<LampInfo> lamps, LampMap map, NumpadSide numpad = NumpadSide.Right)
     {
         if (lamps.Count == 0) return [];
-        var rects = KeyGeometry.Keys(PhysicalLayout.Ansi, NumpadSide.Right).ToDictionary(r => (int)r.KeyId);
+        if (numpad == NumpadSide.None) numpad = NumpadSide.Right;
+        var rects = KeyGeometry.Keys(PhysicalLayout.Ansi, numpad).ToDictionary(r => (int)r.KeyId);
         double kw = rects.Values.Max(r => r.X + r.Width), kh = rects.Values.Max(r => r.Y + r.Height);
-        foreach (var r in KeyGeometry.Keys(PhysicalLayout.Iso, NumpadSide.Right)) rects.TryAdd(r.KeyId, r);
+        foreach (var r in KeyGeometry.Keys(PhysicalLayout.Iso, numpad)) rects.TryAdd(r.KeyId, r);
         int minX = lamps.Min(l => l.PositionX), maxX = Math.Max(minX + 1, lamps.Max(l => l.PositionX));
         int minY = lamps.Min(l => l.PositionY), maxY = Math.Max(minY + 1, lamps.Max(l => l.PositionY));
         var keyIdByLamp = map.KeyIdToLamp.ToDictionary(kv => kv.Value, kv => kv.Key);
         return lamps.Select(l =>
             keyIdByLamp.TryGetValue(l.Id, out int keyId) && rects.TryGetValue(keyId, out var r)
                 ? new LampPoint(l.Id, (r.X + r.Width / 2.0) / kw, (r.Y + r.Height / 2.0) / kh, true, keyId)
-                : new LampPoint(l.Id, (l.PositionX - minX) / (double)(maxX - minX), (l.PositionY - minY) / (double)(maxY - minY), false))
+                : new LampPoint(l.Id, (l.PositionX - minX) / (double)(maxX - minX), (l.PositionY - minY) / (double)(maxY - minY), false,
+                    Edge: map.BindingKind == LampBindingKind.DarkmountKeyId && l.InputBinding >= DarkmountKeys.FirstEdgeLightBinding
+                        ? l.InputBinding - DarkmountKeys.FirstEdgeLightBinding + 1 : 0))
             .ToList();
     }
 }

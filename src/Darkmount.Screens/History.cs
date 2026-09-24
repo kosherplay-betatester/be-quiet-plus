@@ -59,7 +59,7 @@ public sealed class RingSeries : IReadOnlyList<double?>
 /// <summary>Recent history of the graphed metrics (one sample per frame, default 60 samples ≈ 2 minutes).</summary>
 public sealed class MetricHistory
 {
-    private readonly RingSeries _cpuTemp, _cpuLoad, _gpuTemp, _gpuLoad, _fps, _fpsLow;
+    private readonly RingSeries _cpuTemp, _cpuLoad, _gpuTemp, _gpuLoad, _fps, _fpsLow, _netDown, _netUp;
 
     public MetricHistory(int capacity = 60)
     {
@@ -70,6 +70,8 @@ public sealed class MetricHistory
         _gpuLoad = new(capacity);
         _fps = new(capacity);
         _fpsLow = new(capacity);
+        _netDown = new(capacity);
+        _netUp = new(capacity);
     }
 
     public int Capacity { get; }
@@ -81,6 +83,12 @@ public sealed class MetricHistory
     public IReadOnlyList<double?> Fps => _fps;
     public IReadOnlyList<double?> FpsLow => _fpsLow;
 
+    /// <summary>Download rate in bytes/s, fed by <see cref="AddNetwork"/> (independent of <see cref="Add"/>).</summary>
+    public IReadOnlyList<double?> NetDown => _netDown;
+
+    /// <summary>Upload rate in bytes/s, fed by <see cref="AddNetwork"/> (independent of <see cref="Add"/>).</summary>
+    public IReadOnlyList<double?> NetUp => _netUp;
+
     public void Add(Snapshot s)
     {
         ArgumentNullException.ThrowIfNull(s);
@@ -90,6 +98,13 @@ public sealed class MetricHistory
         _gpuLoad.Add(s.GpuLoad);
         _fps.Add(s.Fps);
         _fpsLow.Add(s.FpsLow);
+    }
+
+    /// <summary>Appends one network sample in bytes/s (call once per frame, alongside <see cref="Add"/>).</summary>
+    public void AddNetwork(double down, double up)
+    {
+        _netDown.Add(down);
+        _netUp.Add(up);
     }
 
     /// <summary>Forgets the frame-rate history (call when a game ends).</summary>

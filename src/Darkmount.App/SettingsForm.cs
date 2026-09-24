@@ -17,10 +17,19 @@ public sealed class SettingsForm : Form
     readonly List<(Button Button, Control Page)> _pages = [];
 
     // Dock screen
-    readonly ComboBox _mode = Ui.Combo<ScreenMode>(), _default = Ui.Combo<ScreenKind>();
+    readonly ComboBox _mode = Ui.Combo<ScreenMode>(260), _default = Ui.Combo<ScreenKind>(260);
     readonly NumericUpDown _refresh = Ui.Number(1.5m, 60, 0.5m, 1);
-    readonly TextBox _hotkey = new() { Width = 220, Font = Ui.Body };
-    readonly CheckBox _autostart = Ui.Check("Start Darkmount Hub with Windows");
+    readonly TextBox _hotkey = new() { Width = 220, Font = Ui.Body }, _focusHotkey = new() { Width = 220, Font = Ui.Body };
+    readonly CheckBox _smart = Ui.Check("Smart screens: Now playing when a song starts, the focus timer while it runs"),
+        _rotate = Ui.Check("Take turns showing these screens (Auto mode, no game running):");
+    readonly CheckedListBox _rotation = new()
+    {
+        CheckOnClick = true, Width = 260, Height = 150, Font = Ui.Body, BackColor = Ui.Panel, ForeColor = Ui.Text, BorderStyle = BorderStyle.None,
+        FormattingEnabled = true,
+    };
+    readonly NumericUpDown _rotateSeconds = Ui.Number(5, 600, 5), _focusMin = Ui.Number(1, 180), _breakMin = Ui.Number(1, 60),
+        _longBreakMin = Ui.Number(1, 120);
+    readonly CheckBox _autostart = Ui.Check("Start OverMount with Windows");
 
     // Animation
     readonly ComboBox _animKind = Ui.Combo<AnimationKind>();
@@ -32,20 +41,12 @@ public sealed class SettingsForm : Form
     readonly NumericUpDown _cpuMax = Ui.Number(50, 110), _gpuMax = Ui.Number(50, 110), _ramMax = Ui.Number(50, 100),
         _vramMax = Ui.Number(50, 100), _fpsMin = Ui.Number(5, 240), _fpsSec = Ui.Number(1, 30), _hold = Ui.Number(0, 120);
 
-    // RGB effects
-    readonly CheckBox _rgbOn = Ui.Check("Animate the keyboard's lights (Darkmount Hub drives every LED)"),
-        _rgbAlert = Ui.Check("Flash the keyboard red while a dock alert is showing");
-    readonly ComboBox _rgbEffect = Ui.Combo<Darkmount.Keyboard.Lamps.RgbEffectKind>();
-    readonly TrackBar _rgbSpeed = new() { Minimum = 1, Maximum = 10, Width = 300, BackColor = Ui.Back },
-        _rgbBrightness = new() { Minimum = 0, Maximum = 100, TickFrequency = 10, Width = 300, BackColor = Ui.Back };
-    readonly Pages.ColorButton _rgbColor = new(), _rgbEdge = new();
-    readonly CheckBox _rgbEdgeAuto = Ui.Check("Edge lights follow the animation");
-
     // Sensors
     readonly NumericUpDown _gpuIndex = Ui.Number(0, 8);
     readonly TextBox _labels = new() { Multiline = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9.5f), Size = new Size(620, 300) };
 
     readonly Func<string>? _status2;
+    readonly Func<AppSettings>? _current;
     readonly Label _statusText = new() { AutoSize = true, Font = new Font("Consolas", 10.5f), ForeColor = Ui.Text, Margin = new Padding(0, 4, 0, 0) };
     readonly System.Windows.Forms.Timer _statusTimer = new() { Interval = 1000 };
 
@@ -53,25 +54,28 @@ public sealed class SettingsForm : Form
     public SettingsForm(AppSettings current, Action<AppSettings> apply, Func<string>? status = null,
         KeyboardService? keyboard = null, Darkmount.Dock.DockConnection? dock = null, Macros.MacroManager? macros = null,
         ProfileManager? profiles = null, Func<string?>? currentGame = null,
-        Func<Pages.HomeStatus>? home = null, Action<ScreenMode>? setMode = null, Action? togglePause = null)
+        Func<Pages.HomeStatus>? home = null, Action<ScreenMode>? setMode = null, Action? togglePause = null,
+        Func<AppSettings>? liveSettings = null, RgbEngine? rgb = null, Pages.UpdateActions? updates = null)
     {
         _apply = apply;
         _status2 = status;
+        _current = liveSettings;
         _edit = Clone(current);
 
         // Everything below is laid out in 96-DPI units; WinForms scales it to the monitor (e.g. 200 % on 4K).
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
-        Text = "Darkmount Hub";
+        Text = "OverMount";
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(1140, 720);
+        Icon = AppIcon.Window;
         MinimumSize = new Size(960, 600);
         BackColor = Ui.Back;
         ForeColor = Ui.Text;
         Font = Ui.Body;
 
         var sidebar = new Panel { Dock = DockStyle.Left, Width = 262, BackColor = Ui.Panel };
-        var brand = new Label { Text = "Darkmount Hub", Font = Ui.Title, ForeColor = Ui.Text, AutoSize = true, Margin = new Padding(6, 4, 0, 14) };
+        var brand = new Label { Text = "OverMount", Font = Ui.Title, ForeColor = Ui.Text, AutoSize = true, Margin = new Padding(6, 4, 0, 14) };
         _nav.Controls.Add(brand);
         var previewBox = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 196, FlowDirection = FlowDirection.TopDown, BackColor = Ui.Panel };
         previewBox.Controls.Add(new Label { Text = "LIVE DOCK", ForeColor = Ui.Dim, Font = new Font("Segoe UI Semibold", 8.5f), AutoSize = true, Margin = new Padding(12, 8, 0, 0) });
@@ -84,22 +88,32 @@ public sealed class SettingsForm : Form
         footer.Controls.Add(Ui.Button("Save", (_, _) => Save(), primary: true));
         footer.Controls.Add(_status);
 
+        // Light Mount keyboards have no media dock or display keys: their pages (and the dock preview) are hidden.
+        bool hasDock = dock?.Model.HasMediaDock ?? true;
         if (home is not null)
-            AddPage("Home", new Pages.HomePage(home, setMode ?? (_ => { }), SelectPage, togglePause ?? (() => { })));
-        AddPage("Dock screen", DockPage());
-        AddPage("Animation", AnimationPage());
-        AddPage("Alerts", AlertsPage());
-        AddPage("RGB effects", RgbPage());
-        AddPage("Sensors", SensorsPage());
+            AddPage("Home", new Pages.HomePage(home, setMode ?? (_ => { }), SelectPage, togglePause ?? (() => { }), hasDock));
         if (keyboard is not null)
         {
-            AddPage("Lighting", new Pages.LightingPage(keyboard));
+            AddPage("Lighting", new Pages.LightingHubPage(liveSettings ?? (() => _edit), apply, keyboard, rgb,
+                rgb is null ? null : () => rgb.Fps > 0 ? $"{rgb.Status}, {rgb.Fps:F0} fps" : rgb.Status));
             AddPage("Keys", new Pages.KeysPage(keyboard));
             if (macros is not null) AddPage("Macros", new Pages.MacrosPage(macros, keyboard));
-            if (profiles is not null) AddPage("Profiles", new Pages.ProfilesPage(profiles, currentGame ?? (() => null)));
-            AddPage("Display keys", new Pages.DisplayKeysPage(keyboard));
+            if (profiles is not null) AddPage("Profiles", new Pages.ProfilesPage(profiles, currentGame ?? (() => null), macros));
         }
-        if (dock is not null) AddPage("Dock settings", new Pages.DockSettingsPage(dock));
+        if (hasDock)
+        {
+            AddPage("Dock screen", DockPage());
+            AddPage("Animation", AnimationPage());
+        }
+        AddPage("Alerts", AlertsPage());
+        AddPage("Sensors", SensorsPage());
+        if (hasDock)
+        {
+            if (keyboard is not null) AddPage("Display keys", new Pages.DisplayKeysPage(keyboard));
+            if (dock is not null) AddPage("Dock settings", new Pages.DockSettingsPage(dock));
+        }
+        else previewBox.Visible = false;
+        if (updates is not null) AddPage("About & updates", new Pages.AboutPage(updates, liveSettings ?? (() => _edit), apply));
         if (_status2 is not null)
         {
             var sp = new Ui.Page("Status", "Live diagnostics: connection, uploads and sensor readings.");
@@ -126,6 +140,7 @@ public sealed class SettingsForm : Form
         {
             Text = "   " + title, TextAlign = ContentAlignment.MiddleLeft, Width = 236, Height = 36, FlatStyle = FlatStyle.Flat,
             ForeColor = Ui.Text, BackColor = Ui.Panel, Font = Ui.Body, Cursor = Cursors.Hand, Margin = new Padding(0, 2, 0, 2),
+            UseMnemonic = false,
         };
         button.FlatAppearance.BorderSize = 0;
         button.FlatAppearance.MouseOverBackColor = Ui.PanelHover;
@@ -174,15 +189,28 @@ public sealed class SettingsForm : Form
 
     Control DockPage()
     {
-        var p = new Ui.Page("Dock screen", "What the media dock shows and how Darkmount Hub behaves.");
+        var p = new Ui.Page("Dock screen", "What the media dock shows and how OverMount behaves.");
         p.Row("Screen", _mode, "Auto shows stats while a game runs");
-        p.Row("Default screen (Auto)", _default);
+        p.Row("Default screen (Auto)", _default, "when no game is running");
+        p.Row("", _smart);
+        p.Row("", _rotate);
+        foreach (var kind in Enum.GetValues<ScreenKind>()) _rotation.Items.Add(kind);
+        _rotation.Format += (_, e) => { if (e.ListItem is Enum v) e.Value = Ui.Friendly(v); };
+        p.Row("Rotation", _rotation);
+        p.Row("Next screen every", _rotateSeconds, "seconds");
         p.Row("Refresh every", _refresh, "seconds (minimum ~5 s: each image takes ~2.2 s plus a 3 s rest for the dock)");
         p.Row("Switch-screen hotkey", _hotkey);
         p.Row("", _autostart);
+        p.Heading("Focus timer");
+        p.AddFull(Ui.Note("A Pomodoro timer for deep work: the dock shows the countdown and the F-keys fill up like a progress " +
+                          "bar (Lighting → Studio → live extras). Start or pause it from the tray menu or with the hotkey.", 640));
+        p.Row("Focus", _focusMin, "minutes");
+        p.Row("Short break", _breakMin, "minutes");
+        p.Row("Long break (every 4th)", _longBreakMin, "minutes");
+        p.Row("Start / pause hotkey", _focusHotkey);
         p.Heading("Tips");
         p.AddFull(Ui.Note("• If the dock is dark, press a dock button once: the dock only accepts images while awake.\n" +
-                          "• When IO Center runs, Darkmount Hub pauses and gives the dock back automatically.\n" +
+                          "• When IO Center runs, OverMount pauses and gives the dock back automatically.\n" +
                           "• Exiting restores your own dock settings.", 640));
         return p;
     }
@@ -211,26 +239,6 @@ public sealed class SettingsForm : Form
         fps.Controls.AddRange([_fpsMin, Hint("FPS for at least"), _fpsSec, Hint("seconds")]);
         p.Row(_fpsOn, fps);
         p.Row("Keep alerts visible for", Unit(_hold, "seconds after recovery"));
-        return p;
-    }
-
-    Control RgbPage()
-    {
-        var p = new Ui.Page("RGB effects", "Animations drawn by Darkmount Hub on the keyboard's 201 LEDs through the " +
-            "standard Windows lighting interface: whole-keyboard effects run at up to 30 fps, per-key effects at about " +
-            "7–14 fps. When off, the keyboard's own effect (Lighting page) comes back.");
-        p.Row("", _rgbOn);
-        p.Row("Effect", _rgbEffect, "Rainbow/Plasma: per key");
-        p.Row("Speed", _rgbSpeed);
-        p.Row("Brightness", _rgbBrightness);
-        p.Row("Colour (Static, Breathing)", _rgbColor);
-        var edge = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        edge.Controls.Add(_rgbEdgeAuto);
-        edge.Controls.Add(_rgbEdge);
-        p.Row("Edge lights", edge);
-        p.Row("", _rgbAlert);
-        p.AddFull(Ui.Note("CPU temperature colours the keyboard green (cool) through yellow to red (85 °C and above). " +
-                          "If Windows 'Dynamic Lighting' is on for this keyboard, turn it off in Windows Settings first.", 640));
         return p;
     }
 
@@ -278,6 +286,14 @@ public sealed class SettingsForm : Form
         _refresh.Value = Math.Clamp(_edit.RefreshMs / 1000m, 1.5m, 60);
         _hotkey.Text = _edit.Hotkey;
         _autostart.Checked = _edit.StartWithWindows;
+        _smart.Checked = _edit.SmartScreens;
+        _rotate.Checked = _edit.RotateScreens;
+        for (int i = 0; i < _rotation.Items.Count; i++) _rotation.SetItemChecked(i, _edit.Rotation.Contains((ScreenKind)_rotation.Items[i]));
+        _rotateSeconds.Value = Ui.Clamp(_rotateSeconds, _edit.RotateSeconds);
+        _focusMin.Value = Ui.Clamp(_focusMin, _edit.FocusMinutes);
+        _breakMin.Value = Ui.Clamp(_breakMin, _edit.BreakMinutes);
+        _longBreakMin.Value = Ui.Clamp(_longBreakMin, _edit.LongBreakMinutes);
+        _focusHotkey.Text = _edit.FocusHotkey;
         _animKind.SelectedItem = _edit.AnimationKind;
         _animPath.Text = _edit.AnimationPath ?? "";
 
@@ -289,14 +305,6 @@ public sealed class SettingsForm : Form
         (_fpsOn.Checked, _fpsMin.Value, _fpsSec.Value) = (a.FpsEnabled, Ui.Clamp(_fpsMin, a.FpsMin), Ui.Clamp(_fpsSec, a.FpsSeconds));
         _hold.Value = Ui.Clamp(_hold, a.HoldSeconds);
 
-        _rgbOn.Checked = _edit.RgbEnabled;
-        _rgbAlert.Checked = _edit.RgbAlertFlash;
-        _rgbEffect.SelectedItem = _edit.Rgb.Effect;
-        _rgbSpeed.Value = Math.Clamp(_edit.Rgb.Speed, 1, 10);
-        _rgbBrightness.Value = Math.Clamp(_edit.Rgb.Brightness, 0, 100);
-        _rgbColor.Value = ToColor(_edit.Rgb.Color);
-        _rgbEdgeAuto.Checked = _edit.Rgb.EdgeColor is null;
-        _rgbEdge.Value = ToColor(_edit.Rgb.EdgeColor ?? "FFFFFF");
 
         _gpuIndex.Value = Ui.Clamp(_gpuIndex, _edit.Sensors.GpuIndex);
         _labels.Text = JsonSerializer.Serialize(_edit.Sensors, new JsonSerializerOptions { WriteIndented = true });
@@ -304,9 +312,9 @@ public sealed class SettingsForm : Form
 
     void Save()
     {
-        if (!HotkeyWindow.TryParse(_hotkey.Text, out _, out _))
+        if (!HotkeyWindow.TryParse(_hotkey.Text, out _, out _) || !HotkeyWindow.TryParse(_focusHotkey.Text, out _, out _))
         {
-            MessageBox.Show(this, "The hotkey must look like Ctrl+Alt+Shift+D.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Hotkeys must look like Ctrl+Alt+Shift+D.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -319,13 +327,21 @@ public sealed class SettingsForm : Form
         }
         sensors.GpuIndex = (int)_gpuIndex.Value;
 
-        var s = Clone(_edit);
+        var s = Clone(_current?.Invoke() ?? _edit);
         s.Mode = (ScreenMode)_mode.SelectedItem!;
         s.DefaultScreen = (ScreenKind)_default.SelectedItem!;
         s.DockIdleSeconds = 1;
         s.RefreshMs = (int)(_refresh.Value * 1000);
         s.Hotkey = _hotkey.Text.Trim();
         s.StartWithWindows = _autostart.Checked;
+        s.SmartScreens = _smart.Checked;
+        s.RotateScreens = _rotate.Checked;
+        s.Rotation = _rotation.CheckedItems.Cast<ScreenKind>().ToList();
+        s.RotateSeconds = (int)_rotateSeconds.Value;
+        s.FocusMinutes = (int)_focusMin.Value;
+        s.BreakMinutes = (int)_breakMin.Value;
+        s.LongBreakMinutes = (int)_longBreakMin.Value;
+        s.FocusHotkey = _focusHotkey.Text.Trim();
         s.AnimationKind = (AnimationKind)_animKind.SelectedItem!;
         s.AnimationPath = string.IsNullOrWhiteSpace(_animPath.Text) ? null : _animPath.Text.Trim();
         s.Alerts = new AlertSettings
@@ -338,16 +354,6 @@ public sealed class SettingsForm : Form
             HoldSeconds = (double)_hold.Value,
         };
         s.Sensors = sensors;
-        s.RgbEnabled = _rgbOn.Checked;
-        s.RgbAlertFlash = _rgbAlert.Checked;
-        s.Rgb = new Darkmount.Keyboard.Lamps.RgbEffectSettings
-        {
-            Effect = (Darkmount.Keyboard.Lamps.RgbEffectKind)_rgbEffect.SelectedItem!,
-            Speed = _rgbSpeed.Value,
-            Brightness = _rgbBrightness.Value,
-            Color = Hex(_rgbColor.Value),
-            EdgeColor = _rgbEdgeAuto.Checked ? null : Hex(_rgbEdge.Value),
-        };
         _apply(s);
         _status.Text = $"Saved at {DateTime.Now:HH:mm:ss}";
     }

@@ -88,7 +88,7 @@ public sealed class DisplayKeysPage : Ui.Page
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
         using var bitmap = SKBitmap.Decode(dlg.FileName);
-        if (bitmap is null) { _status.Text = "That file is not a picture Darkmount Hub can read."; return; }
+        if (bitmap is null) { _status.Text = "That file is not a picture OverMount can read."; return; }
         var jpeg = DisplayKeys.EncodeForKey(bitmap);
 
         _status.Text = $"Writing key {index + 1}…";
@@ -114,7 +114,7 @@ public sealed class DisplayKeysPage : Ui.Page
             _status.Text = "No backup yet: the originals are saved automatically before the first change.";
             return;
         }
-        if (MessageBox.Show(this, "Write your original display-key images back to the keyboard?", "Darkmount Hub",
+        if (MessageBox.Show(this, "Write your original display-key images back to the keyboard?", "OverMount",
                 MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
 
         _status.Text = "Restoring the original images…";
@@ -153,7 +153,7 @@ public sealed class DisplayKeysPage : Ui.Page
 static class DisplayKeyCache
 {
     public static string Folder { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DarkmountHub", "display-keys-cache");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OverMount", "display-keys-cache");
 
     static string PathOf(int i) => System.IO.Path.Combine(Folder, $"key{i + 1}.jpg");
 

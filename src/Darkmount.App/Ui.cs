@@ -28,7 +28,7 @@ public static class Ui
             BackColor = Back;
             ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 250));
             ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            AddFull(new Label { Text = title, Font = Title, ForeColor = Ui.Text, AutoSize = true, Margin = new Padding(0, 0, 0, 4) });
+            AddFull(new Label { Text = title, Font = Title, ForeColor = Ui.Text, AutoSize = true, Margin = new Padding(0, 0, 0, 4), UseMnemonic = false });
             if (description is not null) AddFull(Note(description, 620));
             AddFull(new Label { Height = 8, AutoSize = false });
         }
@@ -38,7 +38,7 @@ public static class Ui
             Controls.Add(new Label
             {
                 Text = label, AutoSize = true, ForeColor = Ui.Text, Font = Body, Anchor = AnchorStyles.Left,
-                Margin = new Padding(0, 9, 12, 9),
+                Margin = new Padding(0, 9, 12, 9), UseMnemonic = false,
             });
             control.Anchor = AnchorStyles.Left;
             control.Margin = new Padding(0, 6, 0, 6);
@@ -49,7 +49,7 @@ public static class Ui
             }
             var flow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0), Anchor = AnchorStyles.Left };
             flow.Controls.Add(control);
-            flow.Controls.Add(new Label { Text = hint, AutoSize = true, ForeColor = Dim, Font = Body, Margin = new Padding(8, 9, 0, 0) });
+            flow.Controls.Add(new Label { Text = hint, AutoSize = true, ForeColor = Dim, Font = Body, Margin = new Padding(8, 9, 0, 0), UseMnemonic = false });
             Controls.Add(flow);
         }
 
@@ -64,7 +64,7 @@ public static class Ui
         }
 
         public void Heading(string text) =>
-            AddFull(new Label { Text = text, Font = Section, ForeColor = Accent, AutoSize = true, Margin = new Padding(0, 14, 0, 4) });
+            AddFull(new Label { Text = text, Font = Section, ForeColor = Accent, AutoSize = true, Margin = new Padding(0, 14, 0, 4), UseMnemonic = false });
 
         public void AddFull(Control c)
         {
@@ -74,24 +74,37 @@ public static class Ui
     }
 
     public static Label Note(string text, int width = 520) =>
-        new() { Text = text, AutoSize = true, MaximumSize = new Size(width, 0), ForeColor = Dim, Font = Body, Margin = new Padding(0, 2, 0, 6) };
+        new() { Text = text, AutoSize = true, MaximumSize = new Size(width, 0), ForeColor = Dim, Font = Body, Margin = new Padding(0, 2, 0, 6), UseMnemonic = false };
 
+    /// <summary>A drop-down of enum values shown with friendly names (<see cref="Friendly"/>); items stay enum values.</summary>
     public static ComboBox Combo<T>(int width = 220) where T : struct, Enum
     {
-        var c = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = width, Font = Body, FlatStyle = FlatStyle.Flat };
+        var c = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = width, Font = Body, FlatStyle = FlatStyle.Flat, FormattingEnabled = true };
         foreach (var v in Enum.GetValues<T>()) c.Items.Add(v);
+        c.Format += (_, e) => { if (e.ListItem is Enum v) e.Value = Friendly(v); };
         return c;
     }
+
+    /// <summary>"NowPlaying" → "Now playing", with a few hand-written names.</summary>
+    public static string Friendly(Enum value) => value switch
+    {
+        ScreenMode.Auto => "Auto (stats in games)",
+        ScreenMode.DockDefault => "be quiet! default screen",
+        ScreenMode.Clock or ScreenKind.Clock => "Clock & calendar",
+        Darkmount.Screens.AnimationKind.Gif => "GIF file",
+        _ => System.Text.RegularExpressions.Regex.Replace(value.ToString(), "(?<=[a-z0-9])([A-Z])", m => " " + m.Value.ToLowerInvariant()),
+    };
 
     public static NumericUpDown Number(decimal min, decimal max, decimal step = 1, int decimals = 0) =>
         new() { Minimum = min, Maximum = max, Increment = step, DecimalPlaces = decimals, Width = 90, Font = Body };
 
-    public static CheckBox Check(string text) => new() { Text = text, AutoSize = true, ForeColor = Ui.Text, Font = Body };
+    public static CheckBox Check(string text) => new() { Text = text, AutoSize = true, ForeColor = Ui.Text, Font = Body, UseMnemonic = false };
 
     public static Button Button(string text, EventHandler? onClick = null, bool primary = false)
     {
         var b = new Button
         {
+            UseMnemonic = false,
             Text = text, AutoSize = true, MinimumSize = new Size(100, 34), Font = Body, FlatStyle = FlatStyle.Flat,
             BackColor = primary ? Accent : Panel, ForeColor = primary ? Color.Black : Text, Cursor = Cursors.Hand,
         };

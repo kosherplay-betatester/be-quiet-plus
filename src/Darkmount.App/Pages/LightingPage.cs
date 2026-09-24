@@ -3,11 +3,15 @@ using Darkmount.Keyboard;
 
 namespace Darkmount.App.Pages;
 
-/// <summary>The keyboard's built-in lighting effects (layer 0): effect, colours, direction, brightness, speed.</summary>
+/// <summary>
+/// The keyboard's built-in lighting effects (layer 0): effect, colours, direction, brightness, speed. Changes are written
+/// to the keyboard as you make them (after a short pause) and make the built-in effect the active lighting.
+/// </summary>
 public sealed class LightingPage : Ui.Page
 {
     readonly KeyboardService _keyboard;
-    readonly CheckBox _on = Ui.Check("Keyboard lighting on");
+    readonly Action? _beforeApply;
+    readonly System.Windows.Forms.Timer _applyTimer = new() { Interval = 350 };
     readonly FlowLayoutPanel _effects = new() { AutoSize = true, WrapContents = true, MaximumSize = new Size(640, 0) };
     readonly ComboBox _colorMode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220, Font = Ui.Body };
     readonly FlowLayoutPanel _colors = new() { AutoSize = true, WrapContents = false };
@@ -22,11 +26,15 @@ public sealed class LightingPage : Ui.Page
     Effect _effect = Effect.Static;
     bool _loading;
 
-    public LightingPage(KeyboardService keyboard)
-        : base("Lighting", "The keyboard's built-in effects. Changes are stored on the keyboard, so they stay even " +
-                           "without Darkmount Hub. Your original lighting is backed up before the first change.")
+    /// <param name="beforeApply">Called before a change is written (the host hands the LEDs to the built-in effect).</param>
+    public LightingPage(KeyboardService keyboard, Action? beforeApply = null)
+        : base("Built-in effect", "Runs on the keyboard itself, so it keeps going even when OverMount is closed. Changes " +
+                                  "are saved to the keyboard as you make them; your original lighting is backed up first.")
     {
         _keyboard = keyboard;
+        _beforeApply = beforeApply;
+        _applyTimer.Tick += async (_, _) => { _applyTimer.Stop(); await Apply(); };
+        Disposed += (_, _) => _applyTimer.Dispose();
         foreach (var info in LightingEffects.DarkMount)
         {
             var b = Ui.Button(info.Name, (_, _) => SelectEffect(info.Effect));
@@ -37,12 +45,12 @@ public sealed class LightingPage : Ui.Page
         _addColor = Ui.Button("+", (_, _) => AddColor());
         _removeColor = Ui.Button("−", (_, _) => RemoveColor());
         _addColor.MinimumSize = _removeColor.MinimumSize = new Size(36, 30);
-        _colorMode.SelectedIndexChanged += (_, _) => { if (!_loading) ResetColors(); };
-        _brightness.ValueChanged += (_, _) => _brightnessValue.Text = $"{_brightness.Value}%";
-        _speed.ValueChanged += (_, _) => _speedValue.Text = $"{_speed.Value}%";
+        _colorMode.SelectedIndexChanged += (_, _) => { if (!_loading) { ResetColors(); Changed(); } };
+        _direction.SelectedIndexChanged += (_, _) => Changed();
+        _brightness.ValueChanged += (_, _) => { _brightnessValue.Text = $"{_brightness.Value}%"; Changed(); };
+        _speed.ValueChanged += (_, _) => { _speedValue.Text = $"{_speed.Value}%"; Changed(); };
         _preview.Paint += PaintPreview;
 
-        Row("", _on);
         Row("Effect", _effects);
         Row("Colours", _colorMode);
         var colorRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
@@ -56,9 +64,8 @@ public sealed class LightingPage : Ui.Page
         Row("Speed", _speedRow);
 
         var actions = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        actions.Controls.Add(Ui.Button("Apply to keyboard", async (_, _) => await Apply(), primary: true));
-        actions.Controls.Add(Ui.Button("Reload", async (_, _) => await LoadFromKeyboard()));
-        actions.Controls.Add(Ui.Button("be quiet! factory lighting", (_, _) => Show(LightingMode.General, LightingEffects.FactoryDefault)));
+        actions.Controls.Add(Ui.Button("Read from keyboard", async (_, _) => await LoadFromKeyboard()));
+        actions.Controls.Add(Ui.Button("be quiet! factory lighting", (_, _) => { Show(LightingMode.General, LightingEffects.FactoryDefault); Changed(); }));
         actions.Controls.Add(Ui.Button("Restore my original lighting", (_, _) => RestoreOriginal()));
         AddFull(actions);
         AddFull(_status);
@@ -85,10 +92,18 @@ public sealed class LightingPage : Ui.Page
 
     // ---------------------------------------------------------------- model <-> controls
 
+    /// <summary>Schedules writing the current settings to the keyboard (edits in quick succession become one write).</summary>
+    void Changed()
+    {
+        if (_loading) return;
+        _preview.Invalidate();
+        _applyTimer.Stop();
+        _applyTimer.Start();
+    }
+
     void Show(LightingMode mode, LayerConfig config)
     {
         _loading = true;
-        _on.Checked = mode != LightingMode.Off;
         _effect = LightingEffects.Find(config.Effect) is null ? Effect.Static : config.Effect;
         var info = LightingEffects.Find(_effect)!;
         FillChoices(info);
@@ -118,8 +133,8 @@ public sealed class LightingPage : Ui.Page
     void SelectEffect(Effect effect)
     {
         var info = LightingEffects.Find(effect)!;
-        Show(_on.Checked ? LightingMode.General : LightingMode.Off,
-            info.Default with { Brightness = _brightness.Value });
+        Show(LightingMode.General, info.Default with { Brightness = _brightness.Value });
+        Changed();
     }
 
     void HighlightEffect()
@@ -146,7 +161,7 @@ public sealed class LightingPage : Ui.Page
     ColorButton Swatch(Rgb c)
     {
         var b = new ColorButton { Value = Color.FromArgb(c.R, c.G, c.B) };
-        b.ValueChanged += _ => _preview.Invalidate();
+        b.ValueChanged += _ => Changed();
         return b;
     }
 
@@ -156,7 +171,7 @@ public sealed class LightingPage : Ui.Page
         var last = ((ColorButton)_colors.Controls[^1]).Value;
         _colors.Controls.Add(Swatch(new Rgb(last.R, last.G, last.B)));
         UpdateColorButtons();
-        _preview.Invalidate();
+        Changed();
     }
 
     void RemoveColor()
@@ -164,7 +179,7 @@ public sealed class LightingPage : Ui.Page
         if (_colors.Controls.Count <= LightingEffects.MinGradientStops) return;
         _colors.Controls.RemoveAt(_colors.Controls.Count - 1);
         UpdateColorButtons();
-        _preview.Invalidate();
+        Changed();
     }
 
     void UpdateColorButtons()
@@ -216,6 +231,9 @@ public sealed class LightingPage : Ui.Page
 
     // ---------------------------------------------------------------- keyboard
 
+    /// <summary>Re-reads the effect from the keyboard.</summary>
+    public Task Reload() => LoadFromKeyboard();
+
     async Task LoadFromKeyboard()
     {
         _status.Text = "Reading the keyboard's lighting…";
@@ -228,30 +246,30 @@ public sealed class LightingPage : Ui.Page
             });
             Show(mode, config);
             _status.Text = mode is LightingMode.Custom or LightingMode.Realtime
-                ? "The keyboard is using desktop custom lighting; applying here switches it to the built-in effects."
-                : "Showing the keyboard's current lighting.";
+                ? "The keyboard was left in desktop-driven lighting; any change here switches it back to this built-in effect."
+                : mode == LightingMode.Off ? "The keyboard's lighting is off." : "Showing the keyboard's current effect.";
         }
         catch (Exception e) { _status.Text = Friendly(e); }
     }
 
     async Task Apply()
     {
-        var mode = _on.Checked ? LightingMode.General : LightingMode.Off;
         LayerConfig config;
         try { config = CurrentConfig(); }
         catch (ArgumentException e) { _status.Text = e.Message; return; }
 
-        _status.Text = "Applying…";
+        _beforeApply?.Invoke();
+        _status.Text = "Saving to the keyboard…";
         try
         {
             await _keyboard.Run(q =>
             {
                 KeyboardBackupGuard.EnsureBackup(q);
                 var l = new Lighting(q);
-                l.SetMode(mode);
-                if (mode == LightingMode.General) l.SetLayerConfig(Lighting.TopLayer, config);
+                if (l.GetMode() != LightingMode.General) l.SetMode(LightingMode.General);
+                l.SetLayerConfig(Lighting.TopLayer, config);
             });
-            _status.Text = mode == LightingMode.Off ? "Lighting turned off." : $"Applied {LightingEffects.Find(_effect)!.Name}.";
+            _status.Text = $"✔ {LightingEffects.Find(_effect)!.Name} saved to the keyboard.";
         }
         catch (Exception e) { _status.Text = Friendly(e); }
     }
@@ -264,7 +282,8 @@ public sealed class LightingPage : Ui.Page
             return;
         }
         Show(original.LightingMode ?? LightingMode.General, config);
-        _status.Text = "Your original lighting is shown. Press \"Apply to keyboard\" to restore it.";
+        Changed();
+        _status.Text = "Restoring your original lighting…";
     }
 
     static string Friendly(Exception e) => e is KeyboardUnavailableException ? e.Message : $"Something went wrong: {e.Message}";

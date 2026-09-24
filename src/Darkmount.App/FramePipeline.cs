@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Globalization;
+using Darkmount.App.Sources;
 using Darkmount.Dock;
 using Darkmount.Screens;
 using Darkmount.Sensors;
@@ -19,9 +21,19 @@ public sealed class FramePipeline : IDisposable
     readonly AutoSwitcher _switcher = new();
     readonly AlertEngine _alerts;
     readonly StatsScreen _stats = new();
-    readonly Thread _thread;
+    readonly NowPlayingScreen _nowPlaying = new();
+    readonly ClockScreen _clock = new(use24Hour: !CultureInfo.CurrentCulture.DateTimeFormat.ShortTimePattern.Contains('h'),
+        CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek);
+    readonly NetworkScreen _networkScreen = new();
+    readonly PomodoroScreen _focusScreen = new();
+    readonly NetworkMonitor _network = new();
+    readonly MediaSessionReader _mediaReader = new();
+    readonly Thread _thread, _mediaThread;
     readonly AutoResetEvent _wake = new(false);
+    readonly ManualResetEventSlim _stopped = new(false);
     volatile bool _stop;
+    volatile MediaInfo? _media;
+    string? _lastTrack;
 
     AnimationScreen? _animation;
     (AnimationKind, string?) _animationKey;
@@ -50,6 +62,12 @@ public sealed class FramePipeline : IDisposable
     /// <summary>Optional: tells the pipeline when the user last used the dock (dial, buttons).</summary>
     public Func<TimeSpan, bool>? DockInUse { get; set; }
 
+    /// <summary>Optional: the focus timer's state for the Focus timer screen (null = not available).</summary>
+    public Func<PomodoroInfo?>? Pomodoro { get; set; }
+
+    /// <summary>The song playing right now (Spotify, browsers, ...), refreshed every 2 s.</summary>
+    public MediaInfo? Media => _media;
+
     public FramePipeline(DockConnection dock, Func<AppSettings> settings)
     {
         _dock = dock;
@@ -57,9 +75,24 @@ public sealed class FramePipeline : IDisposable
         _sensors = new SensorHub(settings().Sensors);
         _alerts = new AlertEngine(settings().Alerts);
         _thread = new Thread(Run) { IsBackground = true, Name = "Dock frame pipeline", Priority = ThreadPriority.BelowNormal };
+        _mediaThread = new Thread(PollMedia) { IsBackground = true, Name = "Media sessions", Priority = ThreadPriority.BelowNormal };
     }
 
-    public void Start() => _thread.Start();
+    public void Start()
+    {
+        _thread.Start();
+        _mediaThread.Start();
+    }
+
+    /// <summary>Windows media calls can block for seconds, so they run on their own thread.</summary>
+    void PollMedia()
+    {
+        while (!_stop)
+        {
+            _media = _mediaReader.Poll();
+            _stopped.Wait(2000);
+        }
+    }
 
     /// <summary>Renders and uploads a new frame as soon as possible (screen switch, settings change).</summary>
     public void RefreshNow() => _wake.Set();
@@ -106,12 +139,33 @@ public sealed class FramePipeline : IDisposable
         _wasInGame = snapshot.InGame;
         _history.Add(snapshot);
 
-        var alerts = _alerts.Evaluate(snapshot, DateTime.Now);
-        LastAlerts = alerts;
-        var kind = _switcher.Update(snapshot.InGame, settings);
-        IDockScreen screen = kind == ScreenKind.Animation ? Animation(settings) : _stats;
+        var network = _network.Poll();
+        _history.AddNetwork(network?.DownloadBytesPerSec ?? 0, network?.UploadBytesPerSec ?? 0);
+        var media = _media;
+        string? track = media is { Playing: true } ? $"{media.Artist} - {media.Title}" : null;
+        bool newTrack = track is not null && track != _lastTrack;
+        if (track is not null) _lastTrack = track;
+        var pomodoro = Pomodoro?.Invoke();
+        bool focusActive = pomodoro?.Phase is PomodoroInfo.Focus or PomodoroInfo.Break or PomodoroInfo.LongBreak or PomodoroInfo.Paused;
 
-        var ctx = new ScreenContext { Snapshot = snapshot, History = _history, Alerts = alerts, Now = DateTime.Now };
+        var now = DateTime.Now;
+        var alerts = _alerts.Evaluate(snapshot, now);
+        LastAlerts = alerts;
+        var kind = _switcher.Update(snapshot.InGame, settings, new ScreenSignals(now, focusActive, newTrack));
+        IDockScreen screen = kind switch
+        {
+            ScreenKind.Animation => Animation(settings),
+            ScreenKind.NowPlaying => _nowPlaying,
+            ScreenKind.Clock => _clock,
+            ScreenKind.Network => _networkScreen,
+            ScreenKind.FocusTimer => _focusScreen,
+            _ => _stats,
+        };
+
+        var ctx = new ScreenContext
+        {
+            Snapshot = snapshot, History = _history, Alerts = alerts, Now = now, Media = media, Network = network, Pomodoro = pomodoro,
+        };
         using var frame = DockRenderer.Render(screen, ctx);
         FrameRendered?.Invoke(frame.Copy());
 
@@ -142,9 +196,13 @@ public sealed class FramePipeline : IDisposable
     {
         _stop = true;
         _wake.Set();
+        _stopped.Set();
         if (_thread.IsAlive) _thread.Join(TimeSpan.FromSeconds(5));
+        if (_mediaThread.IsAlive) _mediaThread.Join(TimeSpan.FromSeconds(5));
+        _mediaReader.Dispose();
         _animation?.Dispose();
         _sensors.Dispose();
         _wake.Dispose();
+        _stopped.Dispose();
     }
 }

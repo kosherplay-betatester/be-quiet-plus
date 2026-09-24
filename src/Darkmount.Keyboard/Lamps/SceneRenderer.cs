@@ -75,7 +75,9 @@ public static class SceneRenderer
             _edges = edges;
         }
 
-        public static Targeting For(LightLayer layer) => new(
+        public static Targeting For(LightLayer layer) => layer.Effect == SceneEffect.PerKey
+            ? new(true, null, true, null) // painted lamps choose themselves
+            : new(
             layer.AllKeys, layer.AllKeys || layer.Keys is not { Count: > 0 } ? null : [.. layer.Keys],
             layer.AllEdges, layer.AllEdges || layer.EdgeLamps is not { Count: > 0 } ? null : [.. layer.EdgeLamps]);
 

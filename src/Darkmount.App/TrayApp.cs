@@ -1,5 +1,9 @@
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
+using Darkmount.App.Input;
+using Darkmount.App.Overlays;
+using Darkmount.App.Sources;
 using Darkmount.Dock;
 using Darkmount.QLink;
 using Darkmount.Screens;
@@ -13,11 +17,12 @@ public sealed class TrayApp : ApplicationContext
     readonly ContextMenuStrip _menu = new();
     readonly ToolStripMenuItem _status = new() { Enabled = false };
     readonly ToolStripMenuItem _auto = new("Auto (stats in games)"), _stats = new("Stats"), _anim = new("Animation"),
-        _dockDefault = new("be quiet! default screen");
+        _dockDefault = new("be quiet! default screen"), _moreScreens = new("More screens"), _focusMenu = new("Focus timer"),
+        _focusToggle = new("Start focus");
     readonly ToolStripMenuItem _pause = new("Pause dock"), _autostart = new("Start with Windows");
     readonly System.Windows.Forms.Timer _uiTimer = new() { Interval = 1000 };
     readonly System.Threading.Timer _tickTimer;
-    readonly HotkeyWindow _hotkey = new();
+    readonly HotkeyWindow _hotkey = new(), _focusHotkey = new();
     readonly DockConnection _dock;
     readonly SynchronizationContext _ui;
     readonly KeyboardService _keyboard;
@@ -25,11 +30,25 @@ public sealed class TrayApp : ApplicationContext
     readonly RgbEngine _rgb;
     readonly Macros.MacroManager _macros = new();
     readonly ProfileManager _profiles;
+    readonly Stopwatch _clock = Stopwatch.StartNew();
+    readonly KeyPressFeed _keyFeed;
+    readonly AudioStatus _audioStatus = new();
+    readonly PomodoroTimer _pomodoro = new();
+    readonly System.Windows.Forms.Timer _overlayTimer = new() { Interval = 150 };
+    volatile OverlayState _overlayState = new();
+    HeldModifier _heldModifier;
+    double _heldSince;
 
     AppSettings _settings;
     FramePipeline _pipeline;
     SettingsForm? _settingsForm;
-    bool _toldToWake;
+    bool _toldToWake, _toldAboutIoCenter;
+    Action? _balloonClick;
+    readonly ToolStripMenuItem _takeControl = new("Take control back from IO Center"), _updateItem = new("Check for updates…");
+    readonly System.Windows.Forms.Timer _updateTimer = new() { Interval = 20_000 };
+    Setup.ReleaseInfo? _latestRelease;
+    DateTime _lastUpdateCheck;
+    bool _updating;
 
     public TrayApp()
     {
@@ -40,17 +59,26 @@ public sealed class TrayApp : ApplicationContext
         _dock.Log += Log.Write;
         _dock.StateChanged += s => _ui.Post(_ => OnDockState(s), null);
 
-        _pipeline = new FramePipeline(_dock, () => _settings) { DockInUse = _dockActivity.ActiveWithin };
-        _pipeline.FrameRendered += OnFrame;
+        ApplyFocusDurations();
+        _pomodoro.PhaseChanged += phase => _ui.Post(_ => OnFocusPhase(phase), null);
+        _pipeline = CreatePipeline();
         _keyboard = new KeyboardService(_dock);
         _profiles = new ProfileManager(_keyboard, () => _settings, ApplySettings);
-        _rgb = new RgbEngine(() => _settings, () => _pipeline.LastSnapshot?.CpuTemp, () => _pipeline.LastAlerts.Count > 0);
+        _keyFeed = new KeyPressFeed(_clock); // reactive effects: records only which key was pressed when, never text
+        _rgb = new RgbEngine(() => _settings, () => _pipeline.LastSnapshot, () => _pipeline.LastAlerts.Count > 0,
+            () => _overlayState, _keyFeed, _clock);
+        _overlayTimer.Tick += (_, _) => UpdateOverlayState();
+        _profiles.EdgeLights = () => _rgb.ReadEdgeLights() is { Count: > 0 } live ? live
+            : _dock.Model == KeyboardModel.DarkMount ? Darkmount.Keyboard.Lamps.DarkmountKeys.DefaultEdgeLights : new Dictionary<int, int>();
 
-        _tray = new NotifyIcon { Icon = CreateIcon(), Text = "Darkmount Hub", Visible = true, ContextMenuStrip = BuildMenu() };
+        _tray = new NotifyIcon { Icon = AppIcon.Tray(TrayState.Idle), Text = "OverMount", Visible = true, ContextMenuStrip = BuildMenu() };
         _tray.DoubleClick += (_, _) => ShowSettings();
+        _tray.BalloonTipClicked += (_, _) => { var action = _balloonClick; _balloonClick = null; action?.Invoke(); };
 
         _hotkey.Pressed += CycleScreen;
         if (!_hotkey.Register(_settings.Hotkey)) Log.Write($"Hotkey '{_settings.Hotkey}' could not be registered");
+        _focusHotkey.Pressed += ToggleFocus;
+        if (!_focusHotkey.Register(_settings.FocusHotkey)) Log.Write($"Hotkey '{_settings.FocusHotkey}' could not be registered");
 
         if (_settings.StartWithWindows != Autostart.IsEnabled()) TrySetAutostart(_settings.StartWithWindows);
 
@@ -64,9 +92,12 @@ public sealed class TrayApp : ApplicationContext
             await _profiles.OnGame(_pipeline.LastSnapshot?.GameName); // per-game profiles
         };
         _uiTimer.Start();
+        _updateTimer.Tick += async (_, _) => await AutoCheckForUpdates();
+        _updateTimer.Start();
+        _overlayTimer.Start();
         _pipeline.Start();
         _rgb.Start();
-        Log.Write("Darkmount Hub started");
+        Log.Write("OverMount started");
     }
 
     static IHidTransport? OpenKeyboard() => HidSharpTransport.TryOpen();
@@ -77,6 +108,16 @@ public sealed class TrayApp : ApplicationContext
         _stats.Click += (_, _) => SetMode(ScreenMode.Stats);
         _anim.Click += (_, _) => SetMode(ScreenMode.Animation);
         _dockDefault.Click += (_, _) => SetMode(ScreenMode.DockDefault);
+        foreach (var (mode, text) in new[] { (ScreenMode.NowPlaying, "Now playing"), (ScreenMode.Clock, "Clock & calendar"),
+                     (ScreenMode.Network, "Network"), (ScreenMode.FocusTimer, "Focus timer") })
+            _moreScreens.DropDownItems.Add(new ToolStripMenuItem(text, null, (_, _) => SetMode(mode)) { Tag = mode });
+
+        _focusToggle.Click += (_, _) => ToggleFocus();
+        _focusMenu.DropDownItems.AddRange([
+            _focusToggle,
+            new ToolStripMenuItem("Skip to next phase", null, (_, _) => { _pomodoro.Skip(); _pipeline.RefreshNow(); }),
+            new ToolStripMenuItem("Reset", null, (_, _) => { _pomodoro.Reset(); _pipeline.RefreshNow(); }),
+        ]);
 
         var animations = new ToolStripMenuItem("Animation source");
         foreach (var kind in new[] { AnimationKind.Plasma, AnimationKind.Matrix, AnimationKind.Starfield })
@@ -93,12 +134,22 @@ public sealed class TrayApp : ApplicationContext
             SaveSettings();
         };
 
+        _takeControl.Click += (_, _) => TakeControlFromIoCenter(ask: false);
+        _updateItem.Click += async (_, _) =>
+        {
+            if (_latestRelease is { } known && Setup.UpdateChecker.IsNewer(known, Setup.Installer.CurrentVersion)) { OfferUpdate(known, userAsked: true); return; }
+            var release = await CheckForUpdates();
+            if (release is not null && Setup.UpdateChecker.IsNewer(release, Setup.Installer.CurrentVersion)) OfferUpdate(release, userAsked: true);
+            else Balloon("OverMount", release is null ? "Couldn't reach GitHub to check for updates."
+                : $"You have the latest version ({Setup.Installer.CurrentVersion.ToString(3)}).");
+        };
         _menu.Items.AddRange([
-            _status, new ToolStripSeparator(),
-            _auto, _stats, _anim, _dockDefault, animations, new ToolStripSeparator(),
+            _status, _takeControl, new ToolStripSeparator(),
+            _auto, _stats, _anim, _moreScreens, _dockDefault, animations, new ToolStripSeparator(),
+            _focusMenu,
             _pause, new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()), _autostart,
             new ToolStripMenuItem("Stop all running macros", null, (_, _) => _macros.StopAll()),
-            new ToolStripMenuItem("Open log folder", null, (_, _) => OpenLogs()), new ToolStripSeparator(),
+            new ToolStripMenuItem("Open log folder", null, (_, _) => OpenLogs()), _updateItem, new ToolStripSeparator(),
             new ToolStripMenuItem("Exit", null, (_, _) => ExitThread()),
         ]);
         _menu.Opening += (_, _) => UpdateMenuChecks();
@@ -111,6 +162,13 @@ public sealed class TrayApp : ApplicationContext
         _stats.Checked = _settings.Mode == ScreenMode.Stats;
         _anim.Checked = _settings.Mode == ScreenMode.Animation;
         _dockDefault.Checked = _settings.Mode == ScreenMode.DockDefault;
+        foreach (ToolStripMenuItem item in _moreScreens.DropDownItems) item.Checked = item.Tag is ScreenMode m && m == _settings.Mode;
+        _moreScreens.Checked = _settings.Mode is ScreenMode.NowPlaying or ScreenMode.Clock or ScreenMode.Network or ScreenMode.FocusTimer;
+        bool hasDock = _dock.Model.HasMediaDock;
+        foreach (var item in new ToolStripItem[] { _auto, _stats, _anim, _moreScreens, _dockDefault, _pause })
+            item.Visible = hasDock;
+        _focusToggle.Text = _pomodoro.IsRunning ? "Pause" : _pomodoro.IsPaused ? "Resume" : "Start focus";
+        _takeControl.Visible = _dock.State == DockState.PausedForIoCenter;
         _pause.Checked = _dock.Paused;
         _autostart.Checked = Autostart.IsEnabled();
         UpdateStatus();
@@ -151,6 +209,45 @@ public sealed class TrayApp : ApplicationContext
         if (dlg.ShowDialog() == DialogResult.OK) SetAnimation(AnimationKind.Folder, dlg.SelectedPath);
     }
 
+    FramePipeline CreatePipeline()
+    {
+        var pipeline = new FramePipeline(_dock, () => _settings) { DockInUse = _dockActivity.ActiveWithin, Pomodoro = () => _pomodoro.Info() };
+        pipeline.FrameRendered += OnFrame;
+        return pipeline;
+    }
+
+    /// <summary>Focus hotkey / tray: start, pause or resume the focus timer.</summary>
+    void ToggleFocus()
+    {
+        _pomodoro.Toggle();
+        _pipeline.RefreshNow();
+    }
+
+    void ApplyFocusDurations()
+    {
+        _pomodoro.FocusDuration = TimeSpan.FromMinutes(Math.Clamp(_settings.FocusMinutes, 1, 180));
+        _pomodoro.BreakDuration = TimeSpan.FromMinutes(Math.Clamp(_settings.BreakMinutes, 1, 60));
+        _pomodoro.LongBreakDuration = TimeSpan.FromMinutes(Math.Clamp(_settings.LongBreakMinutes, 1, 120));
+    }
+
+    string _lastFocusPhase = PomodoroInfo.Ready;
+
+    void OnFocusPhase(string phase)
+    {
+        _pipeline.RefreshNow();
+        bool breakEnded = _lastFocusPhase is PomodoroInfo.Break or PomodoroInfo.LongBreak;
+        _lastFocusPhase = phase;
+        string? text = phase switch
+        {
+            PomodoroInfo.Focus => $"Focus for {_settings.FocusMinutes} minutes. You've got this.",
+            PomodoroInfo.Break => $"Time for a {_settings.BreakMinutes}-minute break. Stand up and stretch!",
+            PomodoroInfo.LongBreak => $"Great work! Take a {_settings.LongBreakMinutes}-minute break.",
+            PomodoroInfo.Ready when breakEnded => $"Break over. Press {_settings.FocusHotkey} (or the tray menu) to start the next focus.",
+            _ => null,
+        };
+        if (text is not null) Balloon("Focus timer", text);
+    }
+
     /// <summary>Hotkey: Auto (dashboard) → Animation → be quiet! default screen → Auto.</summary>
     void CycleScreen() => SetMode(AutoSwitcher.NextMode(_settings.Mode));
 
@@ -159,7 +256,8 @@ public sealed class TrayApp : ApplicationContext
         if (_settingsForm is { IsDisposed: false }) { _settingsForm.Activate(); return; }
         _settingsForm = new SettingsForm(_settings, ApplySettings, StatusReport, _keyboard, _dock, _macros,
             _profiles, () => _pipeline.LastSnapshot?.GameName, HomeStatus, SetMode,
-            () => { _dock.Paused = !_dock.Paused; _dock.Tick(); });
+            () => { _dock.Paused = !_dock.Paused; _dock.Tick(); }, liveSettings: () => _settings, rgb: _rgb,
+            updates: new Pages.UpdateActions(CheckForUpdates, r => OfferUpdate(r, userAsked: true), () => _latestRelease));
         _settingsForm.Show();
     }
 
@@ -191,8 +289,8 @@ public sealed class TrayApp : ApplicationContext
             new("Keyboard connected", connected, false,
                 connected ? $"{model.Name} is connected." : _dock.LastError ?? "Plug in the keyboard's USB cable."),
             new("IO Center is closed", !ioCenter, false,
-                ioCenter ? "IO Center is running, so Darkmount Hub has paused. Right-click its tray icon → Exit." : "Darkmount Hub controls the keyboard.",
-                "Close IO Center", CloseIoCenter),
+                ioCenter ? "IO Center is running, so OverMount has paused. Right-click its tray icon → Exit." : "OverMount controls the keyboard.",
+                "Close IO Center", () => TakeControlFromIoCenter(ask: true)),
             new("MSI Afterburner is running", !hints.Contains(Darkmount.Sensors.SensorHub.HintAfterburner), false,
                 "Provides CPU/GPU temperature, power, load and FPS for the dashboard.", "Get Afterburner",
                 () => Pages.HomePage.Open("https://www.msi.com/Landing/afterburner/graphics-cards")),
@@ -220,17 +318,96 @@ public sealed class TrayApp : ApplicationContext
             checks);
     }
 
-    static void CloseIoCenter()
+    /// <summary>
+    /// Lock keys, held modifier (after 0.6 s, so quick shortcuts and gaming don't flash the helper), speaker volume
+    /// (shown for 2 s after it changes), microphone mute and the focus timer, for the lighting overlays.
+    /// </summary>
+    void UpdateOverlayState()
     {
-        foreach (var p in System.Diagnostics.Process.GetProcessesByName("IO_Center"))
+        var o = _settings.Overlays;
+        if (!_settings.RgbEnabled) { _overlayState = new(); return; }
+        if (o.VolumeBar || o.MicMute) _audioStatus.Poll();
+
+        var mod = Down(0x5B) || Down(0x5C) ? HeldModifier.Win
+            : Down(0x11) && !Down(0x12) ? HeldModifier.Ctrl
+            : Down(0x12) && !Down(0x11) ? HeldModifier.Alt : HeldModifier.None;
+        double now = _clock.Elapsed.TotalSeconds;
+        if (mod != _heldModifier) { _heldModifier = mod; _heldSince = now; }
+
+        var pomodoro = _pomodoro.Info();
+        bool timing = pomodoro.Phase is PomodoroInfo.Focus or PomodoroInfo.Break or PomodoroInfo.LongBreak && pomodoro.Total > TimeSpan.Zero;
+        _overlayState = new OverlayState
         {
-            using (p)
+            CapsLock = Control.IsKeyLocked(Keys.CapsLock),
+            NumLock = Control.IsKeyLocked(Keys.NumLock),
+            ScrollLock = Control.IsKeyLocked(Keys.Scroll),
+            ShowVolume = _audioStatus.Volume is not null && DateTime.UtcNow - _audioStatus.VolumeChangedUtc < TimeSpan.FromSeconds(2),
+            Volume = _audioStatus.Volume ?? 0,
+            SpeakersMuted = _audioStatus.SpeakersMuted,
+            MicMuted = _audioStatus.MicMuted == true,
+            Modifier = now - _heldSince >= 0.6 ? mod : HeldModifier.None,
+            Timer = timing ? (1 - pomodoro.Remaining / pomodoro.Total, pomodoro.Phase == PomodoroInfo.Focus) : null,
+        };
+    }
+
+    static bool Down(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
+
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vk);
+
+    /// <summary>
+    /// IO Center keeps driving the keyboard from its tray icon even after its window is closed, so OverMount stays
+    /// paused while IO_Center.exe runs. This closes it (politely first, then for sure), un-freezes lighting it left in
+    /// real-time mode, and reconnects.
+    /// </summary>
+    async void TakeControlFromIoCenter(bool ask)
+    {
+        if (!IoCenterDetector.IsRunning()) { _dock.Tick(); return; }
+        if (ask && MessageBox.Show("IO Center is running (also when only its tray icon is left), so OverMount has paused.\n\n" +
+                "Close IO Center now and let OverMount take over the keyboard?", "OverMount",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+        bool closed = await Task.Run(() =>
+        {
+            foreach (var p in Process.GetProcessesByName("IO_Center"))
             {
-                if (!p.CloseMainWindow())
-                    MessageBox.Show("Please close IO Center from its tray icon (right-click → Exit).", "Darkmount Hub",
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                using (p)
+                {
+                    try
+                    {
+                        if (p.CloseMainWindow() && p.WaitForExit(3000)) continue;
+                        p.Kill();
+                        p.WaitForExit(5000);
+                    }
+                    catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+                    {
+                        Log.Write($"Closing IO Center failed: {e.Message}");
+                    }
+                }
             }
+            return !IoCenterDetector.IsRunning();
+        });
+        if (!closed)
+        {
+            MessageBox.Show("IO Center could not be closed automatically. Right-click its tray icon and choose Exit.", "OverMount",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
         }
+        Log.Write("IO Center closed; taking the keyboard back");
+        await Task.Run(_dock.Tick);
+        try
+        {
+            await _keyboard.Run(q =>
+            {
+                var lighting = new Darkmount.Keyboard.Lighting(q);
+                if (lighting.GetMode() == Darkmount.Keyboard.LightingMode.Realtime) lighting.SetMode(Darkmount.Keyboard.LightingMode.General);
+            });
+        }
+        catch (Exception e) when (e is KeyboardUnavailableException or IOException or TimeoutException or QLinkException)
+        {
+            Log.Write($"Lighting check after IO Center failed: {e.Message}");
+        }
+        _pipeline.RefreshNow();
+        Balloon("OverMount", "IO Center is closed. OverMount is back in control.");
     }
 
     string StatusReport()
@@ -267,8 +444,10 @@ public sealed class TrayApp : ApplicationContext
         _settings = updated;
         SaveSettings();
         if (!_hotkey.Register(updated.Hotkey))
-            _tray.ShowBalloonTip(4000, "Darkmount Hub", $"The hotkey '{updated.Hotkey}' is not available.", ToolTipIcon.Warning);
+            Balloon("OverMount", $"The hotkey '{updated.Hotkey}' is not available.", ToolTipIcon.Warning);
+        _focusHotkey.Register(updated.FocusHotkey);
         TrySetAutostart(updated.StartWithWindows);
+        ApplyFocusDurations();
         if (sensorsChanged) RestartPipeline();
         _pipeline.RefreshNow();
     }
@@ -278,8 +457,7 @@ public sealed class TrayApp : ApplicationContext
         _pipeline.FrameRendered -= OnFrame;
         var old = _pipeline;
         Task.Run(old.Dispose); // may wait for an upload in progress; never on the UI thread
-        _pipeline = new FramePipeline(_dock, () => _settings) { DockInUse = _dockActivity.ActiveWithin };
-        _pipeline.FrameRendered += OnFrame;
+        _pipeline = CreatePipeline();
         _pipeline.Start();
     }
 
@@ -289,15 +467,76 @@ public sealed class TrayApp : ApplicationContext
         else frame.Dispose();
     }
 
+    // ---------------------------------------------------------------- updates
+
+    async Task<Setup.ReleaseInfo?> CheckForUpdates()
+    {
+        _lastUpdateCheck = DateTime.UtcNow;
+        var release = await Setup.UpdateChecker.GetLatestAsync();
+        if (release is not null) _latestRelease = release;
+        bool newer = release is not null && Setup.UpdateChecker.IsNewer(release, Setup.Installer.CurrentVersion);
+        _updateItem.Text = newer ? $"Update to {release!.Version.ToString(3)}…" : "Check for updates…";
+        _updateItem.Font = newer ? new Font(_menu.Font, FontStyle.Bold) : _menu.Font;
+        return release;
+    }
+
+    /// <summary>First check 20 s after start, then twice a day (release builds only, and only if the user allows it).</summary>
+    async Task AutoCheckForUpdates()
+    {
+        _updateTimer.Interval = 60 * 60 * 1000;
+        if (!_settings.CheckForUpdates || Setup.Installer.IsDeveloperBuild || _updating) return;
+        if (DateTime.UtcNow - _lastUpdateCheck < TimeSpan.FromHours(12)) return;
+        var release = await CheckForUpdates();
+        if (release is null || !Setup.UpdateChecker.IsNewer(release, Setup.Installer.CurrentVersion)) return;
+        if (release.Version.ToString(3) == _settings.SkippedUpdate) return;
+        Balloon($"OverMount {release.Version.ToString(3)} is available", "Click here to see what's new and update.",
+            onClick: () => OfferUpdate(release, userAsked: false), ms: 10000);
+    }
+
+    async void OfferUpdate(Setup.ReleaseInfo release, bool userAsked)
+    {
+        if (_updating) return;
+        switch (Setup.UpdateDialog.Offer(release, _settingsForm is { IsDisposed: false } f ? f : null))
+        {
+            case Setup.UpdateChoice.UpdateNow:
+                _updating = true;
+                try { await Setup.UpdateDialog.DownloadAndInstall(release); }
+                finally { _updating = false; }
+                break;
+            case Setup.UpdateChoice.Skip:
+                _settings.SkippedUpdate = release.Version.ToString(3);
+                SaveSettings();
+                break;
+            default:
+                if (!userAsked) _lastUpdateCheck = DateTime.UtcNow; // ask again in 12 hours
+                break;
+        }
+    }
+
+    /// <summary>Shows a tray notification; <paramref name="onClick"/> runs if the user clicks this one.</summary>
+    void Balloon(string title, string text, ToolTipIcon icon = ToolTipIcon.Info, Action? onClick = null, int ms = 5000)
+    {
+        _balloonClick = onClick;
+        _tray.ShowBalloonTip(ms, title, text, icon);
+    }
+
     void OnDockState(DockState state)
     {
         Log.Write($"Dock state: {state}");
         UpdateStatus();
+        if (state == DockState.PausedForIoCenter && !_toldAboutIoCenter)
+        {
+            _toldAboutIoCenter = true;
+            Balloon("IO Center has the keyboard",
+                "OverMount paused while IO Center runs. Click here to close IO Center and take control back.",
+                onClick: () => TakeControlFromIoCenter(ask: false), ms: 8000);
+        }
+        else if (state != DockState.PausedForIoCenter) _toldAboutIoCenter = false;
         if (state == DockState.Ready && !_toldToWake)
         {
             _toldToWake = true;
-            _tray.ShowBalloonTip(5000, "Darkmount Hub is on the dock",
-                "If the dock screen is dark, press a dock button once to wake it.", ToolTipIcon.Info);
+            Balloon("OverMount is on the dock",
+                "If the dock screen is dark, press a dock button once to wake it.");
         }
     }
 
@@ -317,8 +556,14 @@ public sealed class TrayApp : ApplicationContext
             _ => _dock.LastError is { } err ? $"Keyboard not available ({err})" : "Keyboard not found",
         };
         _status.Text = state;
+        var trayState = _pipeline.LastAlerts.Count > 0 ? TrayState.Alert
+            : _dock.State == DockState.PausedForIoCenter ? TrayState.IoCenter
+            : _dock.State is DockState.Connected or DockState.Ready or DockState.NoMediaDock or DockState.KeyboardOnly && !_dock.Paused
+                ? TrayState.Active : TrayState.Idle;
+        var icon = AppIcon.Tray(trayState);
+        if (!ReferenceEquals(_tray.Icon, icon)) _tray.Icon = icon;
         var hints = _pipeline.LastSnapshot?.Hints ?? [];
-        var tip = hints.Count > 0 ? $"{state}\n{hints[0]}" : $"Darkmount Hub\n{state}";
+        var tip = hints.Count > 0 ? $"{state}\n{hints[0]}" : $"OverMount\n{state}";
         _tray.Text = tip.Length > 127 ? tip[..127] : tip;
     }
 
@@ -343,33 +588,21 @@ public sealed class TrayApp : ApplicationContext
         Process.Start(new ProcessStartInfo("explorer.exe", Log.Directory) { UseShellExecute = true });
     }
 
-    static Icon CreateIcon()
-    {
-        using var bmp = new Bitmap(32, 32);
-        using (var g = Graphics.FromImage(bmp))
-        {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-            using var body = new SolidBrush(Color.FromArgb(24, 26, 30));
-            g.FillRectangle(body, 2, 5, 28, 22);
-            using var border = new Pen(Color.FromArgb(255, 138, 31), 2);
-            g.DrawRectangle(border, 2, 5, 27, 21);
-            using var wave = new Pen(Color.FromArgb(76, 217, 100), 2.5f);
-            g.DrawLines(wave, [new(5, 20), new(10, 14), new(15, 18), new(20, 10), new(26, 15)]);
-        }
-        return Icon.FromHandle(bmp.GetHicon());
-    }
-
     protected override void ExitThreadCore()
     {
         Log.Write("Exiting");
         _uiTimer.Stop();
+        _overlayTimer.Stop();
+        _updateTimer.Stop();
         _tickTimer.Dispose();
         _pipeline.Dispose();
         _rgb.Dispose();
+        _keyFeed.Dispose();
+        _audioStatus.Dispose();
         _macros.Dispose();
         _dock.Dispose();
         _hotkey.Dispose();
+        _focusHotkey.Dispose();
         _dockActivity.Dispose();
         _tray.Visible = false;
         _tray.Dispose();

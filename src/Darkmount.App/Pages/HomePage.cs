@@ -21,26 +21,31 @@ public sealed class HomePage : Ui.Page
     readonly System.Windows.Forms.Timer _timer = new() { Interval = 1000 };
     string _lastChecks = "";
 
-    public HomePage(Func<HomeStatus> status, Action<ScreenMode> setMode, Action<string> openPage, Action togglePause)
-        : base("Welcome to Darkmount Hub", "Your keyboard, your way. Everything below updates live.")
+    /// <param name="hasDock">False on Light Mount keyboards: the dock tile, dock actions and dock tips are left out.</param>
+    public HomePage(Func<HomeStatus> status, Action<ScreenMode> setMode, Action<string> openPage, Action togglePause, bool hasDock = true)
+        : base("Welcome to OverMount", "Your keyboard, your way. Everything below updates live.")
     {
         _status = status;
         var cards = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(820, 0) };
-        cards.Controls.AddRange([Tile("KEYBOARD", _keyboard), Tile("DOCK SCREEN", _dock), Tile("LIGHTING", _lighting),
-            Tile("PROFILE", _profile), Tile("MACROS", _macros)]);
+        cards.Controls.Add(Tile("KEYBOARD", _keyboard));
+        if (hasDock) cards.Controls.Add(Tile("DOCK SCREEN", _dock));
+        cards.Controls.AddRange([Tile("LIGHTING", _lighting), Tile("PROFILE", _profile), Tile("MACROS", _macros)]);
         AddFull(cards);
 
         Heading("Quick actions");
         var actions = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(820, 0) };
+        if (hasDock)
+            actions.Controls.AddRange([
+                Big("Show stats", () => setMode(ScreenMode.Auto)),
+                Big("Show animation", () => setMode(ScreenMode.Animation)),
+                Big("be quiet! screen", () => setMode(ScreenMode.DockDefault)),
+            ]);
         actions.Controls.AddRange([
-            Big("Show stats", () => setMode(ScreenMode.Auto)),
-            Big("Show animation", () => setMode(ScreenMode.Animation)),
-            Big("be quiet! screen", () => setMode(ScreenMode.DockDefault)),
-            Big("Lighting studio", () => openPage("Lighting studio")),
+            Big("Lighting", () => openPage("Lighting")),
             Big("Remap keys", () => openPage("Keys")),
             Big("Macros", () => openPage("Macros")),
-            Big("Pause / resume", togglePause),
         ]);
+        if (hasDock) actions.Controls.Add(Big("Pause / resume", togglePause));
         AddFull(actions);
 
         Heading("Setup check");
@@ -53,15 +58,16 @@ public sealed class HomePage : Ui.Page
         AddFull(Ui.Note(
             "• Ctrl+Alt+Shift+D cycles the dock: dashboard → animation → be quiet! screen.\n" +
             "• If the dock screen is dark, press a dock button once — it only accepts pictures while awake.\n" +
+            "• Coming from IO Center? Profiles → Import from IO Center brings your lighting, keys and display-key pictures over.\n" +
             "• Your original keyboard settings are backed up before the first change: Profiles → Restore.\n" +
-            "• Close Darkmount Hub from the tray icon to hand everything back to the keyboard.", 760));
+            "• Close OverMount from the tray icon to hand everything back to the keyboard.", 760));
 
-        _timer.Tick += (_, _) => Refresh();
-        VisibleChanged += (_, _) => { if (Visible) { Refresh(); _timer.Start(); } else _timer.Stop(); };
+        _timer.Tick += (_, _) => ShowStatus();
+        VisibleChanged += (_, _) => { if (Visible) { ShowStatus(); _timer.Start(); } else _timer.Stop(); };
         Disposed += (_, _) => _timer.Dispose();
     }
 
-    void Refresh()
+    void ShowStatus()
     {
         HomeStatus s;
         try { s = _status(); }

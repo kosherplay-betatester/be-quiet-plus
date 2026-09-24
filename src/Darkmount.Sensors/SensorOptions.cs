@@ -27,7 +27,7 @@ public sealed class SensorOptions
     public string[] GameExcludes { get; set; } =
     [
         "explorer.exe", "chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "brave.exe",
-        "Discord.exe", "Code.exe", "Darkmount.App.exe", "DarkmountHub.exe", "dwm.exe",
+        "Discord.exe", "Code.exe", "Darkmount.App.exe", "OverMount.exe", "dwm.exe",
     ];
 
     /// <summary>Minimum RTSS frame rate for an app to count as a running game.</summary>

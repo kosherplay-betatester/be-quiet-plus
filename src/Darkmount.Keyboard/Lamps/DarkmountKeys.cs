@@ -16,6 +16,25 @@ public static class DarkmountKeys
     /// <summary>First InputBinding value that is an edge-light LED rather than a key.</summary>
     public const int FirstEdgeLightBinding = 106;
 
+    /// <summary>Edge lights per ring: 64 around the main block, 32 around the numpad.</summary>
+    public const int KeyboardEdgeLights = 64, EdgeLights = 96;
+
+    /// <summary>
+    /// LampArray lamp id of each edge light (index = edge-light number − 1) as the Dark Mount firmware enumerates them
+    /// (read-only LampProbe dump). Used when the keyboard isn't connected; the live device's map wins when it is.
+    /// </summary>
+    public static IReadOnlyList<int> EdgeLightLampIds { get; } =
+    [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 42, 44, 63, 82, 84, 99, 114, 127,
+        150, 149, 148, 147, 146, 145, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132, 131, 130, 129, 128, 115,
+        100, 85, 83, 64, 45, 43, 25, 23, 152, 153, 154, 155, 156, 157, 158, 160, 162, 164, 170, 176, 181, 183, 188, 193, 200,
+        199, 198, 197, 196, 195, 194, 189, 184, 182, 177, 171, 165, 163, 161, 159,
+    ];
+
+    /// <summary>Edge-light number (1..96) → lamp id, from <see cref="EdgeLightLampIds"/>.</summary>
+    public static IReadOnlyDictionary<int, int> DefaultEdgeLights { get; } =
+        EdgeLightLampIds.Select((lamp, i) => (Edge: i + 1, lamp)).ToDictionary(x => x.Edge, x => x.lamp);
+
     static readonly Key[] All =
     [
         new(1, "`", 0x35), new(2, "1", 0x1E), new(3, "2", 0x1F), new(4, "3", 0x20), new(5, "4", 0x21),

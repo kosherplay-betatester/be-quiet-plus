@@ -3,8 +3,11 @@ using System.Drawing.Drawing2D;
 
 namespace Darkmount.App.Pages;
 
-/// <summary>A key on the keyboard picture: id, position/size in layout units (1 unit = one standard key), label.</summary>
-public sealed record KeyShape(int Id, RectangleF Rect, string Label);
+/// <summary>
+/// A key on the keyboard picture: id, position/size in layout units (1 unit = one standard key), label. <see cref="Led"/>
+/// shapes are edge LEDs, drawn as small glowing bars instead of keycaps.
+/// </summary>
+public sealed record KeyShape(int Id, RectangleF Rect, string Label, bool Led = false);
 
 /// <summary>
 /// Draws the keyboard from layout geometry, scaled to fit. Keys can be selected (single or multi with Ctrl/drag),
@@ -67,6 +70,10 @@ public sealed class KeyboardView : Control
         Invalidate();
     }
 
+    /// <summary>Outline the selected keys (off for screenshots of the lighting alone).</summary>
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool ShowSelection { get; set; } = true;
+
     /// <summary>Draw a chassis with an RGB underglow behind the keys (gamer look).</summary>
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool Chassis { get; set; } = true;
@@ -104,7 +111,9 @@ public sealed class KeyboardView : Control
     RectangleF ToScreen(RectangleF r) =>
         new(_offset.X + r.X * _scale + 1.5f, _offset.Y + r.Y * _scale + 1.5f, r.Width * _scale - 3, r.Height * _scale - 3);
 
-    int HitTest(Point p) => _keys.FirstOrDefault(k => ToScreen(k.Rect).Contains(p))?.Id ?? -1;
+    int HitTest(Point p) =>
+        _keys.FirstOrDefault(k => !k.Led && ToScreen(k.Rect).Contains(p))?.Id
+        ?? _keys.FirstOrDefault(k => k.Led && RectangleF.Inflate(ToScreen(k.Rect), 4, 4).Contains(p))?.Id ?? -1;
 
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -116,27 +125,29 @@ public sealed class KeyboardView : Control
         if (Chassis) PaintChassis(g);
 
         // Text size follows the size of a standard key on screen.
-        var heights = _keys.Select(k => ToScreen(k.Rect).Height).Where(h => h > 3).OrderBy(h => h).ToList();
+        var heights = _keys.Where(k => !k.Led).Select(k => ToScreen(k.Rect).Height).Where(h => h > 3).OrderBy(h => h).ToList();
         float keyPx = heights.Count > 0 ? heights[heights.Count / 2] : 20;
         float fontPx = Math.Clamp(keyPx * 0.36f, 9f, 28f);
         using var font = new Font("Segoe UI Semibold", fontPx, GraphicsUnit.Pixel);
         using var subFont = new Font("Segoe UI Semibold", Math.Max(7f, fontPx * 0.72f), GraphicsUnit.Pixel);
         using var fmt = new StringFormat(StringFormatFlags.NoWrap) { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter };
 
+        foreach (var key in _keys.Where(k => k.Led)) PaintLed(g, key);
         foreach (var key in _keys)
         {
+            if (key.Led) continue;
             var r = ToScreen(key.Rect);
             if (r.Width < 3 || r.Height < 3) continue;
-            bool selected = _selected.Contains(key.Id), hover = key.Id == _hover;
+            bool selected = ShowSelection && _selected.Contains(key.Id), hover = key.Id == _hover;
             float radius = Math.Max(3, Math.Min(r.Width, r.Height) * 0.16f);
 
-            // Neon glow behind a selected key.
-            if (selected)
-                for (int i = 4; i >= 1; i--)
+            // Neon glow behind a selected key (only when few keys are selected, so a whole-keyboard layer stays readable).
+            if (selected && _selected.Count <= 24)
+                for (int i = 3; i >= 1; i--)
                 {
-                    var glow = RectangleF.Inflate(r, i * 2.2f, i * 2.2f);
+                    var glow = RectangleF.Inflate(r, i * 2f, i * 2f);
                     using var gp = Rounded(glow, radius + i * 2);
-                    using var gb = new SolidBrush(Color.FromArgb(28, Ui.Accent));
+                    using var gb = new SolidBrush(Color.FromArgb(24, Ui.Accent));
                     g.FillPath(gb, gp);
                 }
 
@@ -153,7 +164,7 @@ public sealed class KeyboardView : Control
                 g.FillPath(fb, fp);
 
             var border = selected ? Ui.Accent : hover ? Color.FromArgb(0, 200, 255) : Color.FromArgb(70, 76, 88);
-            using (var pen = new Pen(border, selected ? 2.4f : hover ? 1.6f : 1f)) g.DrawPath(pen, path);
+            using (var pen = new Pen(border, selected ? 1.8f : hover ? 1.6f : 1f)) g.DrawPath(pen, path);
 
             if (_marked.Contains(key.Id))
             {
@@ -178,6 +189,30 @@ public sealed class KeyboardView : Control
         {
             using var sel = new Pen(Ui.Accent) { DashStyle = DashStyle.Dash };
             g.DrawRectangle(sel, _dragRect);
+        }
+    }
+
+    /// <summary>An edge LED: a small bar in its colour with a soft glow, ringed when selected or hovered.</summary>
+    void PaintLed(Graphics g, KeyShape key)
+    {
+        var r = new RectangleF(_offset.X + key.Rect.X * _scale, _offset.Y + key.Rect.Y * _scale, key.Rect.Width * _scale, key.Rect.Height * _scale);
+        bool selected = ShowSelection && _selected.Contains(key.Id), hover = key.Id == _hover;
+        bool lit = _colors.TryGetValue(key.Id, out var c) && c.R + c.G + c.B > 24;
+        float radius = Math.Max(1, Math.Min(r.Width, r.Height) / 2);
+        if (lit)
+            for (int i = 3; i >= 1; i--)
+            {
+                using var halo = Rounded(RectangleF.Inflate(r, i * 2f, i * 2f), radius + i * 2);
+                using var hb = new SolidBrush(Color.FromArgb(34, c));
+                g.FillPath(hb, halo);
+            }
+        using var path = Rounded(r, radius);
+        using (var b = new SolidBrush(lit ? c : Color.FromArgb(46, 50, 58))) g.FillPath(b, path);
+        if (selected || hover)
+        {
+            using var ring = Rounded(RectangleF.Inflate(r, 2.5f, 2.5f), radius + 2.5f);
+            using var pen = new Pen(selected ? Ui.Accent : Color.FromArgb(0, 200, 255), selected ? 2f : 1.4f);
+            g.DrawPath(pen, ring);
         }
     }
 

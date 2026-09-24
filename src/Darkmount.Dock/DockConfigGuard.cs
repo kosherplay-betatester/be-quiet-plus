@@ -9,7 +9,7 @@ namespace Darkmount.Dock;
 public sealed class DockConfigGuard(string backupPath)
 {
     public static string DefaultPath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DarkmountHub", "dock-config-backup.hex");
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OverMount", "dock-config-backup.hex");
 
     DockConfig? _original;
 

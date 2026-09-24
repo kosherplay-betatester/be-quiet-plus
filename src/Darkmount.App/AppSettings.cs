@@ -5,9 +5,12 @@ using Darkmount.Sensors;
 
 namespace Darkmount.App;
 
-/// <summary>What the dock shows. <see cref="DockDefault"/> hands the screen back to the keyboard's own be quiet! menu.</summary>
-public enum ScreenMode { Auto, Stats, Animation, DockDefault }
-public enum ScreenKind { Stats, Animation }
+/// <summary>
+/// What the dock shows. <see cref="Auto"/>: stats while a game runs, otherwise the default screen (or the rotation);
+/// <see cref="DockDefault"/> hands the screen back to the keyboard's own be quiet! menu; the rest fix one screen.
+/// </summary>
+public enum ScreenMode { Auto, Stats, Animation, NowPlaying, Clock, Network, FocusTimer, DockDefault }
+public enum ScreenKind { Stats, Animation, NowPlaying, Clock, Network, FocusTimer }
 
 public sealed class AlertSettings
 {
@@ -32,6 +35,20 @@ public sealed class AppSettings
     /// <summary>Screen shown in Auto mode when no game runs.</summary>
     public ScreenKind DefaultScreen { get; set; } = ScreenKind.Stats;
 
+    /// <summary>In Auto mode without a game, take turns showing <see cref="Rotation"/> instead of the default screen.</summary>
+    public bool RotateScreens { get; set; }
+    public List<ScreenKind> Rotation { get; set; } = [ScreenKind.Stats, ScreenKind.NowPlaying, ScreenKind.Clock, ScreenKind.Network];
+    public int RotateSeconds { get; set; } = 30;
+
+    /// <summary>In Auto mode without a game: Now playing for a while when a song starts, the focus timer while it runs.</summary>
+    public bool SmartScreens { get; set; } = true;
+
+    /// <summary>Focus timer (Pomodoro) lengths in minutes.</summary>
+    public int FocusMinutes { get; set; } = 25;
+    public int BreakMinutes { get; set; } = 5;
+    public int LongBreakMinutes { get; set; } = 15;
+    public string FocusHotkey { get; set; } = "Ctrl+Alt+Shift+F";
+
     public AnimationKind AnimationKind { get; set; } = AnimationKind.Plasma;
     public string? AnimationPath { get; set; }
 
@@ -44,19 +61,39 @@ public sealed class AppSettings
     public bool StartWithWindows { get; set; } = true;
     public AlertSettings Alerts { get; set; } = new();
 
-    /// <summary>Host RGB animations on the keyboard's LEDs (off = the keyboard's own lighting effect).</summary>
+    /// <summary>Lighting-studio scene on the keyboard's LEDs (off = the keyboard's own lighting effect).</summary>
     public bool RgbEnabled { get; set; }
-    public Darkmount.Keyboard.Lamps.RgbEffectSettings Rgb { get; set; } = new();
+
+    /// <summary>The Lighting-studio scene (null = the first preset).</summary>
+    public Darkmount.Keyboard.Lamps.LightingScene? Scene { get; set; }
+
+    /// <summary>Live overlays drawn on top of the scene.</summary>
+    public Overlays.OverlaySettings Overlays { get; set; } = new();
+
+    /// <summary>Fade the LEDs out while Windows is locked (and after <see cref="RgbIdleMinutes"/> without input).</summary>
+    public bool RgbDimWhenLocked { get; set; } = true;
+
+    /// <summary>Minutes without input before the LEDs fade out (0 = only when locked).</summary>
+    public int RgbIdleMinutes { get; set; } = 10;
+
+    /// <summary>Which side the numpad is attached to (for the lighting picture and effect geometry).</summary>
+    public Darkmount.Keyboard.NumpadSide NumpadSide { get; set; } = Darkmount.Keyboard.NumpadSide.Right;
 
     /// <summary>Flash the keyboard red while a dock alert is active.</summary>
     public bool RgbAlertFlash { get; set; } = true;
     public SensorOptions Sensors { get; set; } = new();
+
+    /// <summary>Look for a newer release on GitHub once a day.</summary>
+    public bool CheckForUpdates { get; set; } = true;
+
+    /// <summary>A release the user chose to skip ("1.2.0"), so it isn't offered again.</summary>
+    public string? SkippedUpdate { get; set; }
 }
 
 public static class SettingsStore
 {
     public static string DefaultPath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DarkmountHub", "settings.json");
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OverMount", "settings.json");
 
     static readonly JsonSerializerOptions Json = new()
     {

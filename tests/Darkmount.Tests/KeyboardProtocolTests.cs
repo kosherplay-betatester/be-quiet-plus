@@ -830,7 +830,7 @@ public class KeyboardProtocolBackupTests : IDisposable
         var loaded = KeyboardBackup.Load(_dir)!;
         Assert.Equal(GameModeLocks.Win, loaded.LockMask);
         Assert.Equal(first.Bindings, loaded.Bindings);
-        Assert.EndsWith(Path.Combine("DarkmountHub", "keyboard-backup"), KeyboardBackup.DefaultFolder);
+        Assert.EndsWith(Path.Combine("OverMount", "keyboard-backup"), KeyboardBackup.DefaultFolder);
     }
 
     [Fact]

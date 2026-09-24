@@ -9,7 +9,7 @@ public enum SceneEffect
 {
     Static, ColorWave, Tornado, Breathing, Matrix, Reactive, Ripple, Rainbow, Plasma, Aurora, Fire, Ocean, Twinkle, Rain,
     Heartbeat, Police, Scanner, ColorCycle, CpuTemperature, PerformanceMeter, TypingHeatmap, AudioPulse, AudioSpectrum,
-    Lava, Candy, ScreenSync,
+    Lava, Candy, ScreenSync, PerKey,
 }
 
 /// <summary>How <see cref="LightLayer.Colors"/> is read: Single = [0], Dual = [0] and [1], Gradient = all (2..7 stops, evenly spaced).</summary>
@@ -54,12 +54,20 @@ public sealed class LightLayer
     /// <summary>Lamp ids of specific non-key lamps, used when <see cref="AllEdges"/> is false.</summary>
     public List<int> EdgeLamps { get; set; } = [];
 
+    /// <summary><see cref="SceneEffect.PerKey"/>: Dark Mount key id → "RRGGBB". Keys without a colour show the layers below.</summary>
+    public Dictionary<int, string> KeyColors { get; set; } = [];
+
+    /// <summary><see cref="SceneEffect.PerKey"/>: edge-LED lamp id → "RRGGBB".</summary>
+    public Dictionary<int, string> EdgeColors { get; set; } = [];
+
     public LightLayer Clone()
     {
         var copy = (LightLayer)MemberwiseClone();
         copy.Colors = [.. Colors];
         copy.Keys = [.. Keys];
         copy.EdgeLamps = [.. EdgeLamps];
+        copy.KeyColors = new(KeyColors ?? []);
+        copy.EdgeColors = new(EdgeColors ?? []);
         return copy;
     }
 }

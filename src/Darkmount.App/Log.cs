@@ -1,11 +1,11 @@
 namespace Darkmount.App;
 
-/// <summary>Daily log files in %LOCALAPPDATA%\DarkmountHub\logs, keeping the last 7.</summary>
+/// <summary>Daily log files in %LOCALAPPDATA%\OverMount\logs, keeping the last 7.</summary>
 public static class Log
 {
     static readonly object Gate = new();
     static readonly string Dir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DarkmountHub", "logs");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OverMount", "logs");
 
     public static string Directory => Dir;
 

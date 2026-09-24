@@ -1,3 +1,4 @@
+using System.Text;
 using Darkmount.Keyboard;
 
 namespace Darkmount.App.Pages;
@@ -6,6 +7,7 @@ namespace Darkmount.App.Pages;
 public sealed class ProfilesPage : Ui.Page
 {
     readonly ProfileManager _manager;
+    readonly Macros.MacroManager? _macros;
     readonly Func<string?> _currentGame;
     readonly ProfileSet _set;
     readonly ListBox _list = new() { Width = 300, Height = 200, Font = Ui.Body, BackColor = Ui.Panel, ForeColor = Ui.Text, BorderStyle = BorderStyle.None };
@@ -14,12 +16,13 @@ public sealed class ProfilesPage : Ui.Page
     readonly CheckBox _withImages = Ui.Check("Include display-key images");
     readonly Label _status = Ui.Note("", 700);
 
-    public ProfilesPage(ProfileManager manager, Func<string?> currentGame)
+    public ProfilesPage(ProfileManager manager, Func<string?> currentGame, Macros.MacroManager? macros = null)
         : base("Profiles", "A profile stores the keyboard's lighting, key bindings and Game Mode locks (optionally the " +
-                           "display-key images) plus what the dock shows and the RGB effect. Profiles can switch automatically " +
-                           "when a game starts.")
+                           "display-key images) plus what the dock shows and the Lighting-studio scene. Profiles can switch " +
+                           "automatically when a game starts. Coming from IO Center? Import your profiles in one click.")
     {
         _manager = manager;
+        _macros = macros;
         _currentGame = currentGame;
         _set = new ProfileSet
         {
@@ -38,6 +41,7 @@ public sealed class ProfilesPage : Ui.Page
             Ui.Button("Apply selected", async (_, _) => await ApplySelected()),
             Ui.Button("Update from current setup", async (_, _) => await UpdateSelected()),
             Ui.Button("Delete", (_, _) => DeleteSelected()),
+            Ui.Button("Import from IO Center…", async (_, _) => await ImportFromIoCenter()),
         ]);
         buttons.Controls.Add(_withImages);
         var top = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
@@ -123,6 +127,73 @@ public sealed class ProfilesPage : Ui.Page
         catch (Exception e) { _status.Text = Friendly(e); }
     }
 
+    async Task ImportFromIoCenter()
+    {
+        if (IoCenterImportDialog.Ask(FindForm()) is not { Count: > 0 } paths) return;
+        _status.Text = "Importing…";
+        var macroList = _macros?.Macros.Select(m => m.Clone()).ToList();
+        int macrosBefore = macroList?.Count ?? 0;
+        var report = new StringBuilder();
+        int imported = 0;
+        foreach (var path in paths)
+        {
+            try
+            {
+                var result = await _manager.ImportIoCenter(path, macroList);
+                var p = result.Profile;
+                p.Name = UniqueName(p.Name);
+                _set.Profiles.Add(p);
+                imported++;
+                report.AppendLine($"✔  {p.Name}");
+                foreach (var note in result.Notes) report.AppendLine($"     •  {note}");
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException
+                                          or System.Text.Json.JsonException or InvalidOperationException)
+            {
+                report.AppendLine($"✖  {Path.GetFileName(path)}: {e.Message}");
+            }
+            report.AppendLine();
+        }
+        if (_macros is not null && macroList is not null && macroList.Count != macrosBefore) _macros.Save(macroList);
+        RefreshList();
+        if (imported > 0) _list.SelectedIndex = _set.Profiles.Count - 1;
+        SaveAll();
+        _status.Text = imported == 0 ? "Nothing was imported." :
+            $"{imported} profile(s) imported. Select one and press \"Apply selected\" to use it.";
+        ShowReport(report.ToString().TrimEnd());
+    }
+
+    string UniqueName(string name)
+    {
+        if (_set.Profiles.All(p => p.Name != name)) return name;
+        for (int i = 1; ; i++)
+        {
+            var candidate = i == 1 ? $"{name} (IO Center)" : $"{name} (IO Center {i})";
+            if (_set.Profiles.All(p => p.Name != candidate)) return candidate;
+        }
+    }
+
+    void ShowReport(string text)
+    {
+        using var f = new Form
+        {
+            Text = "IO Center import", Width = 760, Height = 520, StartPosition = FormStartPosition.CenterParent, BackColor = Ui.Back,
+            ForeColor = Ui.Text, Font = Ui.Body, MinimizeBox = false, MaximizeBox = false, AutoScaleMode = AutoScaleMode.Dpi,
+        };
+        var box = new TextBox
+        {
+            Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Text = text,
+            BackColor = Ui.Panel, ForeColor = Ui.Text, BorderStyle = BorderStyle.None, Font = Ui.Body,
+        };
+        var ok = Ui.Button("OK", (_, _) => f.Close(), primary: true);
+        var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 52, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(10) };
+        bar.Controls.Add(ok);
+        f.Controls.Add(box);
+        f.Controls.Add(bar);
+        f.AcceptButton = ok;
+        f.ShowDialog(FindForm());
+    }
+
     void DeleteSelected()
     {
         if (Selected is null) return;
@@ -150,11 +221,11 @@ public sealed class ProfilesPage : Ui.Page
     {
         if (KeyboardBackupGuard.Original is not { } original)
         {
-            _status.Text = "There is no backup yet — nothing has been changed on the keyboard by Darkmount Hub.";
+            _status.Text = "There is no backup yet — nothing has been changed on the keyboard by OverMount.";
             return;
         }
         if (MessageBox.Show(this, "Write your original keyboard settings (lighting, key bindings, Game Mode locks and display-key " +
-                "images, as they were before Darkmount Hub changed anything) back to the keyboard?", "Darkmount Hub",
+                "images, as they were before OverMount changed anything) back to the keyboard?", "OverMount",
                 MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
         _status.Text = "Restoring…";
         try
@@ -172,7 +243,7 @@ public sealed class ProfilesPage : Ui.Page
     {
         using var f = new Form
         {
-            Text = "Darkmount Hub", Width = 460, Height = 170, FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
+            Text = "OverMount", Width = 460, Height = 170, FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
             MaximizeBox = false, MinimizeBox = false, BackColor = Ui.Back, ForeColor = Ui.Text, Font = Ui.Body,
         };
         var box = new TextBox { Text = initial, Left = 16, Top = 40, Width = 410 };

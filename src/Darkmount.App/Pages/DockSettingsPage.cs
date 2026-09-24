@@ -3,7 +3,7 @@ using Darkmount.QLink;
 
 namespace Darkmount.App.Pages;
 
-/// <summary>The dock's own settings: menu colour, clock format, and idle behaviour when Darkmount Hub is not driving it.</summary>
+/// <summary>The dock's own settings: menu colour, clock format, and idle behaviour when OverMount is not driving it.</summary>
 public sealed class DockSettingsPage : Ui.Page
 {
     readonly DockConnection _dock;
@@ -15,7 +15,7 @@ public sealed class DockSettingsPage : Ui.Page
     Color _menuColor = Color.FromArgb(0xDC, 0x4D, 0x00);
 
     public DockSettingsPage(DockConnection dock)
-        : base("Dock settings", "The media dock's own menu colour and clock, and what it shows when Darkmount Hub is " +
+        : base("Dock settings", "The media dock's own menu colour and clock, and what it shows when OverMount is " +
                                 "paused or closed (while the app runs it keeps the screen on and shows your dashboard).")
     {
         _dock = dock;
@@ -25,7 +25,7 @@ public sealed class DockSettingsPage : Ui.Page
 
         Row("Menu colour", _color);
         Row("Clock format", _clock);
-        Heading("When Darkmount Hub is not running");
+        Heading("When OverMount is not running");
         Row("After inactivity show", _idleMode);
         Row("Show it after", _idle, "seconds");
         Row("Turn the screen off after", _off, "seconds (0 = never)");
@@ -70,7 +70,7 @@ public sealed class DockSettingsPage : Ui.Page
         {
             _dock.UpdateUserDockConfig(config);
             _status.Text = _dock.State == DockState.Ready
-                ? "Saved. Menu colour and clock apply now; the idle settings apply when Darkmount Hub pauses or exits."
+                ? "Saved. Menu colour and clock apply now; the idle settings apply when OverMount pauses or exits."
                 : "Saved. They will be applied the next time the dock is released.";
         }
         catch (ArgumentException e) { _status.Text = e.Message; }

@@ -73,20 +73,24 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
 public static class Autostart
 {
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    const string Name = "DarkmountHub";
+    const string Name = "OverMount";
 
-    static string Command => $"\"{Environment.ProcessPath}\" --autostart";
+    static string Command(string? exe = null) => $"\"{exe ?? Environment.ProcessPath}\" --autostart";
 
-    public static bool IsEnabled()
+    public static bool IsEnabled() => IsEnabledFor(null);
+
+    /// <summary>True when Windows starts <paramref name="exe"/> (default: this program) at sign-in.</summary>
+    public static bool IsEnabledFor(string? exe)
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunKey);
-        return key?.GetValue(Name) is string v && v == Command;
+        return key?.GetValue(Name) is string v && string.Equals(v, Command(exe), StringComparison.OrdinalIgnoreCase);
     }
 
-    public static void Set(bool enabled)
+    /// <param name="exe">The program to start (default: this one; the installer passes the installed copy).</param>
+    public static void Set(bool enabled, string? exe = null)
     {
         using var key = Registry.CurrentUser.CreateSubKey(RunKey);
-        if (enabled) key.SetValue(Name, Command);
+        if (enabled) key.SetValue(Name, Command(exe));
         else key.DeleteValue(Name, throwOnMissingValue: false);
     }
 }

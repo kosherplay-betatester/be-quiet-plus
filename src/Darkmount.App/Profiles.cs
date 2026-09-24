@@ -5,7 +5,7 @@ using Darkmount.Keyboard.Lamps;
 
 namespace Darkmount.App;
 
-/// <summary>A complete setup: the keyboard's stored settings plus what Darkmount Hub shows and animates.</summary>
+/// <summary>A complete setup: the keyboard's stored settings plus what OverMount shows and animates.</summary>
 public sealed class Profile
 {
     public string Name { get; set; } = "Profile";
@@ -16,13 +16,13 @@ public sealed class Profile
     public ScreenMode Mode { get; set; } = ScreenMode.Auto;
     public ScreenKind DefaultScreen { get; set; } = ScreenKind.Stats;
     public bool RgbEnabled { get; set; }
-    public RgbEffectSettings Rgb { get; set; } = new();
+    public LightingScene? Scene { get; set; }
 
     /// <summary>Game executables (e.g. "cs2.exe") that switch to this profile automatically.</summary>
     public List<string> Games { get; set; } = [];
 }
 
-/// <summary>Profiles in %APPDATA%\DarkmountHub\profiles.json plus the "no game" default.</summary>
+/// <summary>Profiles in %APPDATA%\OverMount\profiles.json plus the "no game" default.</summary>
 public sealed class ProfileSet
 {
     public List<Profile> Profiles { get; set; } = [];
@@ -37,7 +37,7 @@ public sealed class ProfileSet
 public static class ProfileStore
 {
     public static string DefaultPath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DarkmountHub", "profiles.json");
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OverMount", "profiles.json");
 
     static readonly JsonSerializerOptions Json = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
 
@@ -90,8 +90,28 @@ public sealed class ProfileManager(KeyboardService keyboard, Func<AppSettings> g
         var s = getSettings();
         return new Profile
         {
-            Name = name, Keyboard = snapshot, Mode = s.Mode, DefaultScreen = s.DefaultScreen, RgbEnabled = s.RgbEnabled, Rgb = s.Rgb,
+            Name = name, Keyboard = snapshot, Mode = s.Mode, DefaultScreen = s.DefaultScreen, RgbEnabled = s.RgbEnabled, Scene = s.Scene?.Clone(),
         };
+    }
+
+    /// <summary>Edge-light number (1..96) → LampArray lamp id of the connected keyboard (empty when unknown).</summary>
+    public Func<IReadOnlyDictionary<int, int>>? EdgeLights { get; set; }
+
+    /// <summary>
+    /// Converts an IO Center profile. "Open program/folder/website" keys become macros in <paramref name="macros"/>
+    /// (saved by the caller) bound to F13–F24 triggers. Nothing is written to the keyboard until the profile is applied.
+    /// </summary>
+    public async Task<IoCenter.IoCenterImportResult> ImportIoCenter(string path, List<Macros.Macro>? macros)
+    {
+        var edges = await Task.Run(() => EdgeLights?.Invoke() ?? new Dictionary<int, int>());
+        var result = await Task.Run(() => IoCenter.IoCenterImport.Load(path, keyboard.Model,
+            edges.Count > 0 ? n => edges.TryGetValue(n, out int lamp) ? lamp : null : null));
+        var s = getSettings();
+        result.Profile.Mode = s.Mode;
+        result.Profile.DefaultScreen = s.DefaultScreen;
+        var notes = result.Notes.ToList();
+        if (macros is not null) notes.AddRange(IoCenter.IoCenterMacros.Attach(result, macros));
+        return result with { Notes = notes };
     }
 
     public async Task<int> Apply(Profile profile)
@@ -105,7 +125,7 @@ public sealed class ProfileManager(KeyboardService keyboard, Func<AppSettings> g
         s.Mode = profile.Mode;
         s.DefaultScreen = profile.DefaultScreen;
         s.RgbEnabled = profile.RgbEnabled;
-        s.Rgb = profile.Rgb;
+        if (profile.Scene is not null) s.Scene = profile.Scene.Clone();
         applySettings(s);
         ActiveProfile = profile.Name;
         Log.Write($"Applied profile '{profile.Name}' ({writes} keyboard write(s))");

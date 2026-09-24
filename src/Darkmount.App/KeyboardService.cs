@@ -11,12 +11,15 @@ public sealed class KeyboardUnavailableException(string message) : Exception(mes
 /// </summary>
 public sealed class KeyboardService(DockConnection dock)
 {
+    /// <summary>The connected keyboard model (Dark Mount until one is connected).</summary>
+    public Darkmount.QLink.KeyboardModel Model => dock.Model;
+
     /// <summary>Why keyboard settings can't be edited right now, or null when they can.</summary>
     public string? UnavailableReason => dock.State switch
     {
         DockState.Connected or DockState.Ready or DockState.NoMediaDock or DockState.KeyboardOnly => null,
         DockState.PausedForIoCenter => "IO Center is running. Close it to edit keyboard settings here.",
-        DockState.PausedByUser => "Darkmount Hub is paused. Resume it from the tray menu to edit keyboard settings.",
+        DockState.PausedByUser => "OverMount is paused. Resume it from the tray menu to edit keyboard settings.",
         DockState.PausedForOtherApp => "Another app (e.g. IO Center Web) is using the keyboard.",
         _ => "The keyboard is not connected.",
     };
