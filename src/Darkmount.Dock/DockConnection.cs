@@ -113,7 +113,7 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
             _original = guard.Resolve(_dock.GetConfig());
             _dock.SetDateTime(DateTime.Now);
             _lastClock = _lastTraffic = DateTime.UtcNow;
-            _uploader = new FrameUploader(_client, _dock) { HeaderTimeoutMs = HeaderTimeoutMs, ChunkTimeoutMs = ChunkTimeoutMs };
+            _uploader = new FrameUploader(_dock) { HeaderTimeoutMs = HeaderTimeoutMs, ChunkTimeoutMs = ChunkTimeoutMs };
             _uploader.Log += m => Log?.Invoke(m);
             _needsRunningConfig = true;
             LastError = null;

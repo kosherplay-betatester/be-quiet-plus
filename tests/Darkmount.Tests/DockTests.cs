@@ -25,7 +25,7 @@ public class DockTests : IDisposable
     {
         var t = new FakeTransport();
         var q = new QLinkClient(t);
-        var up = new FrameUploader(q, new MediaDock(q));
+        var up = new FrameUploader(new MediaDock(q));
 
         Assert.Equal(UploadResult.Done, up.Upload(Frame(0xAB)));
 
@@ -46,7 +46,7 @@ public class DockTests : IDisposable
         var q = new QLinkClient(t);
         t.Responder = req => req.Command == MediaDockCommands.SetImage && OffsetOf(req) == 4009 ? null : FakeTransport.Ok(req);
         q.NudgeAfterMs = 20;
-        var up = new FrameUploader(q, new MediaDock(q)) { HeaderTimeoutMs = 200, ChunkTimeoutMs = 200 };
+        var up = new FrameUploader(new MediaDock(q)) { HeaderTimeoutMs = 200, ChunkTimeoutMs = 200 };
 
         Assert.Equal(UploadResult.Stalled, up.Upload(Frame(2)));
 
@@ -62,7 +62,7 @@ public class DockTests : IDisposable
         var t = new FakeTransport { Responder = req => req.Command == MediaDockCommands.SetImage ? null : FakeTransport.Ok(req) };
         var q = new QLinkClient(t) { NudgeAfterMs = 0 };
 
-        Assert.Equal(UploadResult.Stalled, new FrameUploader(q, new MediaDock(q)) { HeaderTimeoutMs = 100 }.Upload(Frame(2)));
+        Assert.Equal(UploadResult.Stalled, new FrameUploader(new MediaDock(q)) { HeaderTimeoutMs = 100 }.Upload(Frame(2)));
         Assert.Single(SetImages(t));
     }
 
@@ -70,7 +70,7 @@ public class DockTests : IDisposable
     public void Upload_rejects_wrong_sized_frames()
     {
         var q = new QLinkClient(new FakeTransport());
-        Assert.Throws<ArgumentException>(() => new FrameUploader(q, new MediaDock(q)).Upload(new byte[10]));
+        Assert.Throws<ArgumentException>(() => new FrameUploader(new MediaDock(q)).Upload(new byte[10]));
     }
 
     // ---------------------------------------------------------------- DockConfigGuard

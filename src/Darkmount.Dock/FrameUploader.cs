@@ -12,11 +12,11 @@ public enum UploadResult
 
 /// <summary>
 /// Sends complete 320×240 RGB565 frames to the dock's screensaver slot. The dock only redraws after a
-/// clean, complete upload. The dock is slow and easily overwhelmed, so the uploader never re-sends while a
-/// request is outstanding: it waits generously for each reply and, if one never comes, abandons the frame
-/// and lets the caller back off before trying again from the header.
+/// clean, complete upload. The dock is slow and easily overwhelmed, so the uploader never re-sends pixel data:
+/// it waits generously for each reply (the client flushes replies the firmware holds back with short nudges)
+/// and, if one never comes, abandons the frame and lets the caller back off before trying again from the header.
 /// </summary>
-public sealed class FrameUploader(QLinkClient q, MediaDock dock)
+public sealed class FrameUploader(MediaDock dock)
 {
     public const int Width = 320, Height = 240;
     public const int FrameBytes = Width * Height * 2;

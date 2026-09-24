@@ -8,7 +8,7 @@ string Arg(string name, string def) { int i = Array.IndexOf(args, name); return 
 int frames = int.Parse(Arg("--frames", "5")), chunk = int.Parse(Arg("--chunk", "4000")), nudgeMs = int.Parse(Arg("--nudge-ms", "600"));
 var mode = Enum.Parse<NudgeMode>(Arg("--nudge", "RepeatRequest"));
 
-if (Process.GetProcessesByName("IO_Center").Length > 0 || Process.GetProcessesByName("Darkmount.App").Length > 0)
+if (Process.GetProcessesByName("IO_Center").Length > 0 || Process.GetProcessesByName("DarkmountHub").Length > 0)
 {
     Console.WriteLine("Close IO Center and Darkmount Hub first.");
     return 2;
@@ -19,7 +19,7 @@ q.Pump(200);
 q.OpenSession();
 Console.WriteLine($"Session {q.Sid}, active {q.IsActive}; nudge {mode} after {nudgeMs} ms; chunk {chunk}");
 var dock = new MediaDock(q);
-var up = new FrameUploader(q, dock) { ChunkSize = chunk };
+var up = new FrameUploader(dock) { ChunkSize = chunk };
 up.Log += m => Console.WriteLine("  " + m);
 
 var frame = new byte[FrameUploader.FrameBytes];
