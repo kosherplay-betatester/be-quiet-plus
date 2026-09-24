@@ -42,7 +42,7 @@ public sealed class TrayApp : ApplicationContext
     AppSettings _settings;
     FramePipeline _pipeline;
     SettingsForm? _settingsForm;
-    bool _toldToWake, _toldAboutIoCenter;
+    bool _toldToWake, _toldAboutIoCenter, _exiting;
     Action? _balloonClick;
     readonly ToolStripMenuItem _takeControl = new("Take control back from IO Center"), _updateItem = new("Check for updates…");
     readonly System.Windows.Forms.Timer _updateTimer = new() { Interval = 20_000 };
@@ -523,6 +523,7 @@ public sealed class TrayApp : ApplicationContext
     void OnDockState(DockState state)
     {
         Log.Write($"Dock state: {state}");
+        if (_exiting) return; // the tray icon is already gone
         UpdateStatus();
         if (state == DockState.PausedForIoCenter && !_toldAboutIoCenter)
         {
@@ -542,6 +543,7 @@ public sealed class TrayApp : ApplicationContext
 
     void UpdateStatus()
     {
+        if (_exiting) return;
         string state = _dock.State switch
         {
             DockState.Connected or DockState.Ready when _dock.DockUnresponsive => "Dock not responding: press a dock button to wake it",
@@ -590,6 +592,7 @@ public sealed class TrayApp : ApplicationContext
 
     protected override void ExitThreadCore()
     {
+        _exiting = true;
         Log.Write("Exiting");
         _uiTimer.Stop();
         _overlayTimer.Stop();
