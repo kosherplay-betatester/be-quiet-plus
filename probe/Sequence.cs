@@ -190,6 +190,50 @@ public static class Sequence
         }
     }
 
+    /// <summary>
+    /// Does a continuous stream of full uploads keep the dock on its menu? Uploads numbered solid-colour frames
+    /// every <paramref name="intervalMs"/> with the screensaver set to <paramref name="idleSeconds"/>.
+    /// </summary>
+    public static void Cycle(QLinkClient q, int frames, int intervalMs, int idleSeconds)
+    {
+        var original = ConfigGuard.Original(q);
+        var clock = Stopwatch.StartNew();
+        void Log(string s) => Console.WriteLine($"[{clock.ElapsedMilliseconds / 1000.0,5:F1}s] {s}");
+        SKColor[] colours = [SKColors.DarkRed, SKColors.DarkGreen, SKColors.DarkBlue, SKColors.DarkGoldenrod, SKColors.Purple, SKColors.Teal];
+        string[] names = ["RED", "GREEN", "BLUE", "YELLOW", "PURPLE", "TEAL"];
+        try
+        {
+            using var bmp = new SKBitmap(W, H, SKColorType.Rgba8888, SKAlphaType.Opaque);
+            using var cv = new SKCanvas(bmp);
+            using var font = new SKFont(SKTypeface.FromFamilyName("Segoe UI", SKFontStyle.Bold), 64);
+            using var ink = new SKPaint { Color = SKColors.White, IsAntialias = true };
+            for (int f = 0; f < frames; f++)
+            {
+                var sw = Stopwatch.StartNew();
+                cv.Clear(colours[f % colours.Length]);
+                cv.DrawText($"{f + 1} {names[f % names.Length]}", W / 2f, H / 2f + 22, SKTextAlign.Center, font, ink);
+                cv.Flush();
+                Formats.Upload(q, Slot, Formats.Rgb565, Formats.ToRgb565(bmp));
+                if (f == 0) q.SendReliable(QLinkClient.FeatMediaDock, 3, ConfigGuard.Quick(original) is var c ? SetIdle(c, idleSeconds) : c);
+                Log($"frame {f + 1} ({names[f % names.Length]}) uploaded in {sw.ElapsedMilliseconds} ms");
+                while (sw.ElapsedMilliseconds < intervalMs) { q.KeepAlive(); q.Pump(Math.Min(500, (int)(intervalMs - sw.ElapsedMilliseconds))); }
+            }
+        }
+        finally
+        {
+            q.WaitReady();
+            q.SendReliable(QLinkClient.FeatMediaDock, 3, original);
+            Log("Restored original dock config.");
+        }
+    }
+
+    static byte[] SetIdle(byte[] config, int seconds)
+    {
+        var c = (byte[])config.Clone();
+        BinaryPrimitives.WriteUInt16LittleEndian(c.AsSpan(5), (ushort)seconds);
+        return c;
+    }
+
     static void Timed(QLinkClient q, byte[] payload, int offset, List<(int, long)> lat)
     {
         var sw = Stopwatch.StartNew();
