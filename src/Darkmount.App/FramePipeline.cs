@@ -32,6 +32,9 @@ public sealed class FramePipeline : IDisposable
     public event Action<SKBitmap>? FrameRendered;
 
     public Snapshot? LastSnapshot { get; private set; }
+
+    /// <summary>Alerts from the latest frame (read by the RGB engine for its alert flash).</summary>
+    public IReadOnlyList<Alert> LastAlerts { get; private set; } = [];
     public ScreenKind CurrentScreen => _switcher.Current;
     public AutoSwitcher Switcher => _switcher;
 
@@ -104,6 +107,7 @@ public sealed class FramePipeline : IDisposable
         _history.Add(snapshot);
 
         var alerts = _alerts.Evaluate(snapshot, DateTime.Now);
+        LastAlerts = alerts;
         var kind = _switcher.Update(snapshot.InGame, settings);
         IDockScreen screen = kind == ScreenKind.Animation ? Animation(settings) : _stats;
 

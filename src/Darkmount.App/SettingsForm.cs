@@ -32,6 +32,15 @@ public sealed class SettingsForm : Form
     readonly NumericUpDown _cpuMax = Ui.Number(50, 110), _gpuMax = Ui.Number(50, 110), _ramMax = Ui.Number(50, 100),
         _vramMax = Ui.Number(50, 100), _fpsMin = Ui.Number(5, 240), _fpsSec = Ui.Number(1, 30), _hold = Ui.Number(0, 120);
 
+    // RGB effects
+    readonly CheckBox _rgbOn = Ui.Check("Animate the keyboard's lights (Darkmount Hub drives every LED)"),
+        _rgbAlert = Ui.Check("Flash the keyboard red while a dock alert is showing");
+    readonly ComboBox _rgbEffect = Ui.Combo<Darkmount.Keyboard.Lamps.RgbEffectKind>();
+    readonly TrackBar _rgbSpeed = new() { Minimum = 1, Maximum = 10, Width = 300, BackColor = Ui.Back },
+        _rgbBrightness = new() { Minimum = 0, Maximum = 100, TickFrequency = 10, Width = 300, BackColor = Ui.Back };
+    readonly Pages.ColorButton _rgbColor = new(), _rgbEdge = new();
+    readonly CheckBox _rgbEdgeAuto = Ui.Check("Edge lights follow the animation");
+
     // Sensors
     readonly NumericUpDown _gpuIndex = Ui.Number(0, 8);
     readonly TextBox _labels = new() { Multiline = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9.5f), Size = new Size(620, 300) };
@@ -73,6 +82,7 @@ public sealed class SettingsForm : Form
         AddPage("Dock screen", DockPage());
         AddPage("Animation", AnimationPage());
         AddPage("Alerts", AlertsPage());
+        AddPage("RGB effects", RgbPage());
         AddPage("Sensors", SensorsPage());
         if (keyboard is not null)
         {
@@ -188,6 +198,26 @@ public sealed class SettingsForm : Form
         return p;
     }
 
+    Control RgbPage()
+    {
+        var p = new Ui.Page("RGB effects", "Animations drawn by Darkmount Hub on the keyboard's 201 LEDs through the " +
+            "standard Windows lighting interface: whole-keyboard effects run at up to 30 fps, per-key effects at about " +
+            "7–14 fps. When off, the keyboard's own effect (Lighting page) comes back.");
+        p.Row("", _rgbOn);
+        p.Row("Effect", _rgbEffect, "Rainbow/Plasma: per key");
+        p.Row("Speed", _rgbSpeed);
+        p.Row("Brightness", _rgbBrightness);
+        p.Row("Colour (Static, Breathing)", _rgbColor);
+        var edge = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        edge.Controls.Add(_rgbEdgeAuto);
+        edge.Controls.Add(_rgbEdge);
+        p.Row("Edge lights", edge);
+        p.Row("", _rgbAlert);
+        p.AddFull(Ui.Note("CPU temperature colours the keyboard green (cool) through yellow to red (85 °C and above). " +
+                          "If Windows 'Dynamic Lighting' is on for this keyboard, turn it off in Windows Settings first.", 640));
+        return p;
+    }
+
     Control SensorsPage()
     {
         var p = new Ui.Page("Sensors", "Data comes from MSI Afterburner (CPU, GPU, RAM, FPS), RivaTuner (game detection) and, " +
@@ -243,6 +273,15 @@ public sealed class SettingsForm : Form
         (_fpsOn.Checked, _fpsMin.Value, _fpsSec.Value) = (a.FpsEnabled, Ui.Clamp(_fpsMin, a.FpsMin), Ui.Clamp(_fpsSec, a.FpsSeconds));
         _hold.Value = Ui.Clamp(_hold, a.HoldSeconds);
 
+        _rgbOn.Checked = _edit.RgbEnabled;
+        _rgbAlert.Checked = _edit.RgbAlertFlash;
+        _rgbEffect.SelectedItem = _edit.Rgb.Effect;
+        _rgbSpeed.Value = Math.Clamp(_edit.Rgb.Speed, 1, 10);
+        _rgbBrightness.Value = Math.Clamp(_edit.Rgb.Brightness, 0, 100);
+        _rgbColor.Value = ToColor(_edit.Rgb.Color);
+        _rgbEdgeAuto.Checked = _edit.Rgb.EdgeColor is null;
+        _rgbEdge.Value = ToColor(_edit.Rgb.EdgeColor ?? "FFFFFF");
+
         _gpuIndex.Value = Ui.Clamp(_gpuIndex, _edit.Sensors.GpuIndex);
         _labels.Text = JsonSerializer.Serialize(_edit.Sensors, new JsonSerializerOptions { WriteIndented = true });
     }
@@ -283,9 +322,27 @@ public sealed class SettingsForm : Form
             HoldSeconds = (double)_hold.Value,
         };
         s.Sensors = sensors;
+        s.RgbEnabled = _rgbOn.Checked;
+        s.RgbAlertFlash = _rgbAlert.Checked;
+        s.Rgb = new Darkmount.Keyboard.Lamps.RgbEffectSettings
+        {
+            Effect = (Darkmount.Keyboard.Lamps.RgbEffectKind)_rgbEffect.SelectedItem!,
+            Speed = _rgbSpeed.Value,
+            Brightness = _rgbBrightness.Value,
+            Color = Hex(_rgbColor.Value),
+            EdgeColor = _rgbEdgeAuto.Checked ? null : Hex(_rgbEdge.Value),
+        };
         _apply(s);
         _status.Text = $"Saved at {DateTime.Now:HH:mm:ss}";
     }
+
+    static Color ToColor(string hex)
+    {
+        try { var c = Darkmount.Keyboard.Rgb.Parse(hex); return Color.FromArgb(c.R, c.G, c.B); }
+        catch (Exception e) when (e is FormatException or ArgumentException) { return Color.OrangeRed; }
+    }
+
+    static string Hex(Color c) => $"{c.R:X2}{c.G:X2}{c.B:X2}";
 
     static AppSettings Clone(AppSettings s) => JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(s))!;
 
@@ -302,3 +359,5 @@ public sealed class SettingsForm : Form
         base.OnFormClosed(e);
     }
 }
+
+

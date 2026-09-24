@@ -43,6 +43,13 @@ public sealed class AppSettings
     public string Hotkey { get; set; } = "Ctrl+Alt+Shift+D";
     public bool StartWithWindows { get; set; } = true;
     public AlertSettings Alerts { get; set; } = new();
+
+    /// <summary>Host RGB animations on the keyboard's LEDs (off = the keyboard's own lighting effect).</summary>
+    public bool RgbEnabled { get; set; }
+    public Darkmount.Keyboard.Lamps.RgbEffectSettings Rgb { get; set; } = new();
+
+    /// <summary>Flash the keyboard red while a dock alert is active.</summary>
+    public bool RgbAlertFlash { get; set; } = true;
     public SensorOptions Sensors { get; set; } = new();
 }
 

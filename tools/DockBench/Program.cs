@@ -7,6 +7,61 @@ using Darkmount.QLink;
 string Arg(string name, string def) { int i = Array.IndexOf(args, name); return i >= 0 && i + 1 < args.Length ? args[i + 1] : def; }
 int frames = int.Parse(Arg("--frames", "5")), window = int.Parse(Arg("--window", "4"));
 
+if (args.Contains("--lamps"))
+{
+    // Per-key RGB over the standard LampArray interface (MI_03). Hands control back to the keyboard at the end.
+    using var dev = Darkmount.Keyboard.Lamps.LampArrayDevice.Open() ?? throw new InvalidOperationException("LampArray not found");
+    var lamps = dev.Lamps;
+    Console.WriteLine($"{lamps.Count} lamps, min update interval {dev.Attributes.MinUpdateIntervalMicroseconds} µs");
+    int minX = lamps.Min(l => l.PositionX), maxX = lamps.Max(l => l.PositionX);
+    try
+    {
+        dev.SetAutonomousMode(false);
+        var t0 = Stopwatch.StartNew();
+        dev.SetAll(new(255, 0, 0));
+        Console.WriteLine($"all red in {t0.ElapsedMilliseconds} ms");
+        Thread.Sleep(1500);
+        t0.Restart();
+        dev.SetAll(new(0, 255, 0));
+        Console.WriteLine($"all green in {t0.ElapsedMilliseconds} ms");
+        Thread.Sleep(1500);
+
+        // Rainbow wave: every lamp, every frame, as fast as the keyboard allows.
+        var clock = Stopwatch.StartNew();
+        int frameCount = 0;
+        long worst = 0;
+        while (clock.ElapsedMilliseconds < 6000)
+        {
+            double secs = clock.ElapsedMilliseconds / 1000.0;
+            var colors = new Dictionary<int, Darkmount.Keyboard.Lamps.LampColor>(lamps.Count);
+            foreach (var l in lamps)
+            {
+                double hue = ((l.PositionX - minX) / (double)Math.Max(1, maxX - minX) + secs * 0.5) % 1.0;
+                var (r, g, b) = Hsv(hue);
+                colors[l.Id] = new(r, g, b);
+            }
+            var f = Stopwatch.StartNew();
+            dev.SetColors(colors);
+            worst = Math.Max(worst, f.ElapsedMilliseconds);
+            frameCount++;
+        }
+        Console.WriteLine($"rainbow wave: {frameCount} full frames in 6 s = {frameCount / 6.0:F1} fps (worst frame {worst} ms)");
+    }
+    finally
+    {
+        dev.SetAutonomousMode(true);
+        Console.WriteLine("Handed lighting back to the keyboard.");
+    }
+    return 0;
+
+    static (byte, byte, byte) Hsv(double h)
+    {
+        double x = h * 6, f = x - Math.Floor(x);
+        byte v = 255, p = 0, q = (byte)(255 * (1 - f)), u = (byte)(255 * f);
+        return ((int)x % 6) switch { 0 => (v, u, p), 1 => (q, v, p), 2 => (p, v, u), 3 => (p, q, v), 4 => (u, p, v), _ => (v, p, q) };
+    }
+}
+
 if (Process.GetProcessesByName("IO_Center").Length > 0 || Process.GetProcessesByName("DarkmountHub").Length > 0)
 {
     Console.WriteLine("Close IO Center and Darkmount Hub first.");
@@ -99,3 +154,4 @@ for (int f = 0; f < frames; f++)
     q.KeepAlive();
 }
 return 0;
+

@@ -22,6 +22,7 @@ public sealed class TrayApp : ApplicationContext
     readonly SynchronizationContext _ui;
     readonly KeyboardService _keyboard;
     readonly DockActivityWatcher _dockActivity = new();
+    readonly RgbEngine _rgb;
 
     AppSettings _settings;
     FramePipeline _pipeline;
@@ -40,6 +41,7 @@ public sealed class TrayApp : ApplicationContext
         _pipeline = new FramePipeline(_dock, () => _settings) { DockInUse = _dockActivity.ActiveWithin };
         _pipeline.FrameRendered += OnFrame;
         _keyboard = new KeyboardService(_dock);
+        _rgb = new RgbEngine(() => _settings, () => _pipeline.LastSnapshot?.CpuTemp, () => _pipeline.LastAlerts.Count > 0);
 
         _tray = new NotifyIcon { Icon = CreateIcon(), Text = "Darkmount Hub", Visible = true, ContextMenuStrip = BuildMenu() };
         _tray.DoubleClick += (_, _) => ShowSettings();
@@ -56,6 +58,7 @@ public sealed class TrayApp : ApplicationContext
         _uiTimer.Tick += (_, _) => UpdateStatus();
         _uiTimer.Start();
         _pipeline.Start();
+        _rgb.Start();
         Log.Write("Darkmount Hub started");
     }
 
@@ -160,6 +163,7 @@ public sealed class TrayApp : ApplicationContext
             $"Screen         {_pipeline.CurrentScreen}",
             $"Frames         {_dock.FramesUploaded} uploaded, {_dock.FramesStalled} stalled",
             $"Last upload    {(_dock.LastUploadDuration.TotalMilliseconds > 0 ? $"{_dock.LastUploadDuration.TotalMilliseconds:F0} ms" : "--")}",
+            $"RGB            {_rgb.Status}{(_rgb.Fps > 0 ? $" at {_rgb.Fps:F0} fps" : "")}",
             "",
             $"CPU            {V(s?.CpuTemp, " °C")}   {V(s?.CpuLoad, " %")}   {V(s?.CpuPower, " W")}",
             $"GPU            {V(s?.GpuTemp, " °C")}   {V(s?.GpuLoad, " %")}   {V(s?.GpuPower, " W")}",
@@ -280,6 +284,7 @@ public sealed class TrayApp : ApplicationContext
         _uiTimer.Stop();
         _tickTimer.Dispose();
         _pipeline.Dispose();
+        _rgb.Dispose();
         _dock.Dispose();
         _hotkey.Dispose();
         _dockActivity.Dispose();

@@ -127,6 +127,26 @@ public sealed class LampArrayDevice : IDisposable
     public void SetColors(IReadOnlyDictionary<int, (byte R, byte G, byte B, byte I)> colors) =>
         SetColors(colors.ToDictionary(kv => kv.Key, kv => (LampColor)kv.Value));
 
+    /// <summary>
+    /// Sends one animation frame: optional same-colour runs as range updates, then per-lamp colours as multi-updates;
+    /// the very last report carries "update complete". Callers should pass only lamps that changed.
+    /// </summary>
+    public void SetFrame(IReadOnlyDictionary<int, LampColor> perLamp, IReadOnlyList<(int First, int Last, LampColor Color)> ranges)
+    {
+        foreach (int id in perLamp.Keys) ValidateLampId(id);
+        var reports = new List<byte[]>();
+        for (int i = 0; i < ranges.Count; i++)
+        {
+            var (first, last, color) = ranges[i];
+            ValidateLampId(first);
+            ValidateLampId(last);
+            bool complete = perLamp.Count == 0 && i == ranges.Count - 1;
+            reports.Add(LampArrayReports.EncodeRangeUpdate(Layout, first, last, color, complete, BufferLength));
+        }
+        if (perLamp.Count > 0) reports.AddRange(LampArrayReports.EncodeMultiUpdates(Layout, perLamp, BufferLength));
+        Send(reports);
+    }
+
     /// <summary>Sets every lamp to one colour with a single LampRangeUpdate report.</summary>
     public void SetAll(LampColor color)
     {
