@@ -181,6 +181,29 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
         }
     }
 
+    /// <summary>
+    /// Runs keyboard commands (lighting, bindings, …) on the shared session, between frame uploads.
+    /// Returns false when the keyboard is not connected.
+    /// </summary>
+    public bool TryExecute(Action<QLinkClient> action)
+    {
+        lock (_io)
+        {
+            if (_client is null) return false;
+            try
+            {
+                action(_client);
+                _lastTraffic = DateTime.UtcNow;
+                return true;
+            }
+            catch (Exception e) when (e is TimeoutException or IOException or ObjectDisposedException)
+            {
+                Lost(e);
+                return false;
+            }
+        }
+    }
+
     /// <summary>Restores the user's dock settings and closes the session.</summary>
     void Release(DockState next, bool restore = true)
     {
