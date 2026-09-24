@@ -24,6 +24,12 @@ public sealed class FrameUploader(MediaDock dock)
 
     /// <summary>Single-frame image writes kept in flight (4 measured as fast as 8 or 16 on the Dark Mount).</summary>
     public int Window { get; init; } = 4;
+
+    /// <summary>
+    /// Large multi-frame writes. Off by default: on hardware the firmware held every reply and the dock rejected the
+    /// images (12.7 s per frame, be quiet! logo shown). Kept only for experiments.
+    /// </summary>
+    public bool LargeWrites { get; init; }
     readonly byte[] _header = MediaDock.ImageHeader(Width, Height, FrameBytes);
 
     /// <summary>How long to wait for the header reply (the dock prepares its buffer; can take seconds).</summary>
@@ -51,7 +57,8 @@ public sealed class FrameUploader(MediaDock dock)
                 dock.SetImage(MediaDock.SlotScreensaver, 0, _header, HeaderTimeoutMs);
                 offset = 0;
                 // Pipelined and never repeated: the dock rejects an image if any chunk arrives twice.
-                dock.SetImageData(MediaDock.SlotScreensaver, rgb565, Window, ChunkTimeoutMs);
+                if (LargeWrites) dock.SetImageDataLarge(MediaDock.SlotScreensaver, rgb565, timeoutMs: ChunkTimeoutMs);
+                else dock.SetImageData(MediaDock.SlotScreensaver, rgb565, Window, ChunkTimeoutMs);
                 LastDuration = sw.Elapsed;
                 return UploadResult.Done;
             }

@@ -38,7 +38,8 @@ public sealed class AppSettings
     /// <summary>Kept for old settings files; the dock idle delay is always 1 s while the app drives the dock.</summary>
     public int DockIdleSeconds { get; set; } = 1;
 
-    public int RefreshMs { get; set; } = 2000;
+    /// <summary>Target time between dock images. Each upload takes ~2.2 s and is followed by a 3 s rest.</summary>
+    public int RefreshMs { get; set; } = 5000;
     public string Hotkey { get; set; } = "Ctrl+Alt+Shift+D";
     public bool StartWithWindows { get; set; } = true;
     public AlertSettings Alerts { get; set; } = new();

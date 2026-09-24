@@ -21,6 +21,7 @@ public sealed class TrayApp : ApplicationContext
     readonly DockConnection _dock;
     readonly SynchronizationContext _ui;
     readonly KeyboardService _keyboard;
+    readonly DockActivityWatcher _dockActivity = new();
 
     AppSettings _settings;
     FramePipeline _pipeline;
@@ -36,7 +37,7 @@ public sealed class TrayApp : ApplicationContext
         _dock.Log += Log.Write;
         _dock.StateChanged += s => _ui.Post(_ => OnDockState(s), null);
 
-        _pipeline = new FramePipeline(_dock, () => _settings);
+        _pipeline = new FramePipeline(_dock, () => _settings) { DockInUse = _dockActivity.ActiveWithin };
         _pipeline.FrameRendered += OnFrame;
         _keyboard = new KeyboardService(_dock);
 
@@ -192,7 +193,7 @@ public sealed class TrayApp : ApplicationContext
     {
         _pipeline.FrameRendered -= OnFrame;
         _pipeline.Dispose();
-        _pipeline = new FramePipeline(_dock, () => _settings);
+        _pipeline = new FramePipeline(_dock, () => _settings) { DockInUse = _dockActivity.ActiveWithin };
         _pipeline.FrameRendered += OnFrame;
         _pipeline.Start();
     }
@@ -281,6 +282,7 @@ public sealed class TrayApp : ApplicationContext
         _pipeline.Dispose();
         _dock.Dispose();
         _hotkey.Dispose();
+        _dockActivity.Dispose();
         _tray.Visible = false;
         _tray.Dispose();
         _settingsForm?.Close();

@@ -150,7 +150,7 @@ public sealed class SettingsForm : Form
         var p = new Ui.Page("Dock screen", "What the media dock shows and how Darkmount Hub behaves.");
         p.Row("Screen", _mode, "Auto shows stats while a game runs");
         p.Row("Default screen (Auto)", _default);
-        p.Row("Refresh every", _refresh, "seconds (the dock needs ~1.6 s per image)");
+        p.Row("Refresh every", _refresh, "seconds (minimum ~5 s: each image takes ~2.2 s plus a 3 s rest for the dock)");
         p.Row("Switch-screen hotkey", _hotkey);
         p.Row("", _autostart);
         p.Heading("Tips");

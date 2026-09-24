@@ -85,6 +85,25 @@ public sealed class MediaDock(QLinkClient q)
         q.SendWindowed(Features.MediaDock, MediaDockCommands.SetImage, payloads, window, replyTimeoutMs);
     }
 
+    /// <summary>
+    /// Writes image data as large multi-frame writes (far fewer commands for the dock to process), pipelined and
+    /// never repeated — see <see cref="QLinkClient.SendSequence"/>.
+    /// </summary>
+    public void SetImageDataLarge(byte slot, ReadOnlySpan<byte> pixels, int chunkSize = 4000, int timeoutMs = 5000)
+    {
+        var payloads = new List<byte[]>(pixels.Length / chunkSize + 1);
+        for (int offset = 0; offset < pixels.Length; offset += chunkSize)
+        {
+            int len = Math.Min(chunkSize, pixels.Length - offset);
+            var payload = new byte[5 + len];
+            payload[0] = slot;
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(1), (uint)(HeaderSize + offset));
+            pixels.Slice(offset, len).CopyTo(payload.AsSpan(5));
+            payloads.Add(payload);
+        }
+        q.SendSequence(Features.MediaDock, MediaDockCommands.SetImage, payloads, timeoutMs: timeoutMs);
+    }
+
     public static byte[] ImageHeader(int width, int height, int payloadLength, byte format = FormatRgb565)
     {
         var h = new byte[HeaderSize];

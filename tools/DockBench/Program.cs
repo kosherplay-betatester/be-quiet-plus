@@ -38,6 +38,47 @@ if (args.Contains("--readkeys"))
     return 0;
 }
 
+if (args.Contains("--cycle"))
+{
+    // Numbered colour frames with the app's real uploader; the dock is set exactly like the app sets it.
+    bool large = !args.Contains("--small");
+    int interval = int.Parse(Arg("--interval", "2500"));
+    var md = new MediaDock(q);
+    var guard = new DockConfigGuard(DockConfigGuard.DefaultPath);
+    var original = guard.Resolve(md.GetConfig());
+    var uploader = new FrameUploader(md) { LargeWrites = large };
+    uploader.Log += m => Console.WriteLine("  " + m);
+    SkiaSharp.SKColor[] colours = [SkiaSharp.SKColors.DarkRed, SkiaSharp.SKColors.DarkGreen, SkiaSharp.SKColors.DarkBlue, SkiaSharp.SKColors.DarkGoldenrod];
+    var clock = Stopwatch.StartNew();
+    try
+    {
+        for (int f = 0; f < frames; f++)
+        {
+            var sw = Stopwatch.StartNew();
+            using var bmp = new SkiaSharp.SKBitmap(320, 240, SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Opaque);
+            using (var cv = new SkiaSharp.SKCanvas(bmp))
+            {
+                cv.Clear(colours[f % colours.Length]);
+                using var big = new SkiaSharp.SKFont(SkiaSharp.SKTypeface.FromFamilyName("Segoe UI", SkiaSharp.SKFontStyle.Bold), 110);
+                using var small = new SkiaSharp.SKFont(SkiaSharp.SKTypeface.FromFamilyName("Segoe UI", SkiaSharp.SKFontStyle.Bold), 26);
+                using var ink = new SkiaSharp.SKPaint { Color = SkiaSharp.SKColors.White, IsAntialias = true };
+                cv.DrawText($"{f + 1}", 160, 150, SkiaSharp.SKTextAlign.Center, big, ink);
+                cv.DrawText(large ? "LARGE" : "SMALL", 160, 215, SkiaSharp.SKTextAlign.Center, small, ink);
+            }
+            var result = uploader.Upload(Rgb565.FromBitmap(bmp));
+            if (f == 0) md.SetConfig(DockConfigGuard.Running(original));
+            Console.WriteLine($"[{clock.ElapsedMilliseconds / 1000.0,5:F1}s] frame {f + 1} ({(large ? "large" : "small")} writes): {result} in {sw.ElapsedMilliseconds} ms");
+            while (sw.ElapsedMilliseconds < interval) { q.KeepAlive(); q.Pump((int)Math.Clamp(interval - sw.ElapsedMilliseconds, 1, 500)); }
+        }
+    }
+    finally
+    {
+        md.SetConfig(original);
+        Console.WriteLine("Restored the dock settings.");
+    }
+    return 0;
+}
+
 var dock = new MediaDock(q);
 var up = new FrameUploader(dock) { Window = window };
 up.Log += m => Console.WriteLine("  " + m);

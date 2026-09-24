@@ -35,8 +35,17 @@ public sealed class FramePipeline : IDisposable
     public ScreenKind CurrentScreen => _switcher.Current;
     public AutoSwitcher Switcher => _switcher;
 
-    /// <summary>Minimum pause after each upload (the colour tests that displayed correctly had ~0.35 s).</summary>
-    const int MinQuietGapMs = 400;
+    /// <summary>
+    /// Rest after each upload. The dock can only switch to our screen and react to its buttons while no image is
+    /// arriving; back-to-back uploads left it stuck on its menu, 3 s rests showed every frame (verified on hardware).
+    /// </summary>
+    const int MinQuietGapMs = 3000;
+
+    /// <summary>After the user touches the dial or a dock/media key, uploads pause this long so the dock stays responsive.</summary>
+    static readonly TimeSpan PauseAfterDockUse = TimeSpan.FromSeconds(3);
+
+    /// <summary>Optional: tells the pipeline when the user last used the dock (dial, buttons).</summary>
+    public Func<TimeSpan, bool>? DockInUse { get; set; }
 
     public FramePipeline(DockConnection dock, Func<AppSettings> settings)
     {
@@ -64,6 +73,7 @@ public sealed class FramePipeline : IDisposable
             // a short quiet gap after an upload so the dock can switch to (or stay on) our screen.
             int refresh = Math.Clamp(_settings().RefreshMs, 1500, 60000);
             var gap = System.Diagnostics.Stopwatch.StartNew();
+            if (DockInUse?.Invoke(PauseAfterDockUse) == true) refresh = 500; // re-check soon after the user stops
             while (!_stop && (started.ElapsedMilliseconds < refresh || gap.ElapsedMilliseconds < MinQuietGapMs))
             {
                 if (_wake.WaitOne(500)) break;
@@ -103,6 +113,8 @@ public sealed class FramePipeline : IDisposable
 
         _dock.ShowAppScreens = settings.Mode != ScreenMode.DockDefault;
         if (_dock.State is not (DockState.Connected or DockState.Ready)) { _lastUploaded = null; return; }
+
+        if (DockInUse?.Invoke(PauseAfterDockUse) == true) return; // let the dock's own controls respond
 
         var pixels = Rgb565.FromBitmap(frame);
         if (!_dock.ShowAppScreens) { _dock.Present(pixels); _lastUploaded = null; return; } // releases the screen

@@ -104,6 +104,72 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
         }
     }
 
+    /// <summary>
+    /// Sends several requests of the same command in order, <b>never repeating one</b>. The firmware sometimes
+    /// holds a reply back until the next write arrives; when a reply is late by <paramref name="heldAfterMs"/>, the
+    /// next request is sent (at most two outstanding), which releases it. The dock counts image bytes, so a repeated
+    /// chunk would spoil the image — this is the only safe way to keep an image upload moving.
+    /// If only the very last reply stays held for <paramref name="finalGraceMs"/>, the sequence counts as delivered
+    /// (the next request of any kind releases it; its late reply is ignored by request id).
+    /// </summary>
+    /// <exception cref="TimeoutException">No progress for <paramref name="timeoutMs"/>.</exception>
+    /// <exception cref="QLinkException">The device rejected one of the requests.</exception>
+    public void SendSequence(byte feature, byte command, IReadOnlyList<byte[]> payloads,
+        int heldAfterMs = 250, int timeoutMs = 5000, int finalGraceMs = 1500)
+    {
+        if (!CommandAllowlist.IsAllowed(feature, command))
+            throw new InvalidOperationException($"Command {feature}/{command} is not on the safety allowlist.");
+
+        lock (_gate)
+        {
+            var outstanding = new List<byte>(2);
+            int next = 0;
+            var sinceProgress = Stopwatch.StartNew();
+
+            void SendNext()
+            {
+                byte id = NextRequestId();
+                foreach (var packet in Frame.Build(Sid, id, feature, command, payloads[next++])) transport.Write(packet);
+                outstanding.Add(id);
+                sinceProgress.Restart();
+            }
+
+            while (next < payloads.Count || outstanding.Count > 0)
+            {
+                if (outstanding.Count == 0) { SendNext(); continue; }
+
+                bool moreToSend = next < payloads.Count;
+                long waitLimit = moreToSend && outstanding.Count < 2 ? heldAfterMs
+                    : moreToSend ? timeoutMs
+                    : outstanding.Count == 1 ? finalGraceMs : timeoutMs;
+                long left = waitLimit - sinceProgress.ElapsedMilliseconds;
+
+                Frame f;
+                try
+                {
+                    if (left <= 0) throw new TimeoutException();
+                    f = ReadFrame((int)left);
+                }
+                catch (TimeoutException)
+                {
+                    if (moreToSend && outstanding.Count < 2) { SendNext(); continue; } // releases the held reply
+                    if (!moreToSend && outstanding.Count == 1) { HeldFinalReplies++; return; } // last reply held: delivered
+                    throw new TimeoutException($"No reply for {timeoutMs} ms during a {payloads.Count}-part transfer (part {next}).");
+                }
+
+                if (f.IsNotification || f.IsContinuation) continue;
+                if (f.Feature != feature || f.Command != command || !outstanding.Contains(f.ReqId)) continue;
+                if (f.Status != 0)
+                    throw new QLinkException((QLinkStatus)f.Status, $"{feature}/{command} failed: {(QLinkStatus)f.Status}");
+                outstanding.Remove(f.ReqId);
+                sinceProgress.Restart();
+            }
+        }
+    }
+
+    /// <summary>How often the last reply of a <see cref="SendSequence"/> stayed held (diagnostics).</summary>
+    public int HeldFinalReplies { get; private set; }
+
     static int Remaining(Stopwatch sw, int timeoutMs)
     {
         long left = timeoutMs - sw.ElapsedMilliseconds;
