@@ -299,7 +299,7 @@ public class SensorParsingTests(ITestOutputHelper output)
         Assert.Equal("Game.exe", s.GameName);
         Assert.Equal(75, s.Fps!.Value, 3);
         Assert.Null(s.FpsLow);
-        Assert.Contains(s.Hints, h => h.Contains("0.1% low"));
+        Assert.Contains(s.Hints, h => h.Contains("1% low"));
     }
 
     [Fact]

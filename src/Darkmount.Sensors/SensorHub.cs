@@ -77,6 +77,8 @@ public sealed class SensorHub : IDisposable
             {
                 fpsLow = m?.FpsLow;
                 if (m is not null) fpsLowLabel = m.FpsLowLabel;
+                // Only when nothing can provide a low (e.g. the measurement is still warming up).
+                if (fpsLow is null && mahmData is not null && !mahmData.HasFpsLowEntries) hints.Add(HintFpsLow);
             }
         }
 
