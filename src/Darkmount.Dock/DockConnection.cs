@@ -71,6 +71,14 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
         {
             if (!Monitor.TryEnter(_io)) return; // an upload is running; it keeps the session alive
             try { TickLocked(); }
+            catch (Exception e)
+            {
+                // Tick runs on a timer thread, where an escaping exception would end the whole app: drop the
+                // connection instead and try again on the next tick.
+                LastError = e.Message;
+                Log?.Invoke($"Keyboard check failed: {e}");
+                try { Lost(e); } catch (Exception) { /* already gone */ }
+            }
             finally { Monitor.Exit(_io); }
         }
         finally { Volatile.Write(ref _ticking, 0); }
@@ -329,9 +337,10 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
         _client = null; _transport = null; _dock = null; _uploader = null;
     }
 
+    /// <remarks>Argument/format errors come from short or garbled device replies (e.g. a truncated dock config).</remarks>
     static bool IsDeviceFailure(Exception e) =>
         e is TimeoutException or IOException or ObjectDisposedException or QLinkException or UnauthorizedAccessException
-            or InvalidOperationException;
+            or InvalidOperationException or ArgumentException or FormatException;
 
     void SetState(DockState s)
     {
@@ -352,10 +361,15 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
 /// <summary>Detects the desktop IO Center app, which must own the keyboard while it runs.</summary>
 public static class IoCenterDetector
 {
+    /// <summary>True while IO_Center.exe runs; false if the process list can't be read this time.</summary>
     public static bool IsRunning()
     {
-        var procs = Process.GetProcessesByName("IO_Center");
-        foreach (var p in procs) p.Dispose();
-        return procs.Length > 0;
+        try
+        {
+            var procs = Process.GetProcessesByName("IO_Center");
+            foreach (var p in procs) p.Dispose();
+            return procs.Length > 0;
+        }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { return false; }
     }
 }

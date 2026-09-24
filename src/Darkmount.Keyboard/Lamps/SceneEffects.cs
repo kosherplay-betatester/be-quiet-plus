@@ -113,8 +113,9 @@ public static class SceneEffects
 
     static readonly Dictionary<SceneEffect, SceneEffectInfo> ByEffect = All.ToDictionary(i => i.Effect);
 
+    /// <summary>The effect's info; an unknown value (hand-edited or newer settings file) is treated as Static.</summary>
     public static SceneEffectInfo Get(SceneEffect e) =>
-        ByEffect.TryGetValue(e, out var info) ? info : throw new ArgumentOutOfRangeException(nameof(e), e, "Unknown scene effect");
+        ByEffect.TryGetValue(e, out var info) ? info : ByEffect[SceneEffect.Static];
 
     /// <summary>A new layer (all keys and edges) with the effect's default name, colours, colour mode and direction.</summary>
     public static LightLayer CreateLayer(SceneEffect e)

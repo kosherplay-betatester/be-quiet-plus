@@ -8,7 +8,8 @@ namespace Darkmount.App;
 /// <summary>Main window: sidebar navigation, a live preview of the dock, and one page per settings area.</summary>
 public sealed class SettingsForm : Form
 {
-    readonly AppSettings _edit;
+    /// <summary>The settings the form-owned controls were last loaded from (Save compares against it).</summary>
+    AppSettings _edit;
     readonly Action<AppSettings> _apply;
     readonly Panel _content = new() { Dock = DockStyle.Fill, BackColor = Ui.Back, AutoScroll = true };
     readonly FlowLayoutPanel _nav = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Ui.Panel, Padding = new Padding(10, 12, 10, 0), AutoScroll = true };
@@ -128,6 +129,7 @@ public sealed class SettingsForm : Form
         Controls.Add(footer);
         Controls.Add(sidebar);
         LoadValues();
+        Activated += (_, _) => RefreshFromLive();
         Select(0);
     }
 
@@ -318,27 +320,37 @@ public sealed class SettingsForm : Form
         _labels.Text = JsonSerializer.Serialize(_edit.Sensors, new JsonSerializerOptions { WriteIndented = true });
     }
 
-    void Save()
+    /// <summary>Settings the controls on the Dock screen, Animation, Alerts and Sensors pages own.</summary>
+    static readonly string[] FormFields =
+    [
+        nameof(AppSettings.Mode), nameof(AppSettings.DefaultScreen), nameof(AppSettings.RefreshMs), nameof(AppSettings.Hotkey),
+        nameof(AppSettings.StartWithWindows), nameof(AppSettings.SmartScreens), nameof(AppSettings.RotateScreens),
+        nameof(AppSettings.Rotation), nameof(AppSettings.RotateSeconds), nameof(AppSettings.FocusMinutes),
+        nameof(AppSettings.BreakMinutes), nameof(AppSettings.LongBreakMinutes), nameof(AppSettings.FocusHotkey),
+        nameof(AppSettings.AnimationKind), nameof(AppSettings.AnimationPath), nameof(AppSettings.Alerts), nameof(AppSettings.Sensors),
+    ];
+
+    /// <summary><paramref name="basis"/> with the form-owned values taken from the controls; null if a value is invalid.</summary>
+    AppSettings? FromControls(AppSettings basis, bool report)
     {
         if (!HotkeyWindow.TryParse(_hotkey.Text, out _, out _) || !HotkeyWindow.TryParse(_focusHotkey.Text, out _, out _))
         {
-            MessageBox.Show(this, "Hotkeys must look like Ctrl+Alt+Shift+D.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
+            if (report) MessageBox.Show(this, "Hotkeys must look like Ctrl+Alt+Shift+D.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return null;
         }
 
         SensorOptions sensors;
         try { sensors = JsonSerializer.Deserialize<SensorOptions>(_labels.Text) ?? new(); }
         catch (JsonException e)
         {
-            MessageBox.Show(this, $"The sensor names are not valid JSON:\n{e.Message}", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
+            if (report) MessageBox.Show(this, $"The sensor names are not valid JSON:\n{e.Message}", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return null;
         }
         sensors.GpuIndex = (int)_gpuIndex.Value;
 
-        var s = Clone(_current?.Invoke() ?? _edit);
+        var s = Clone(basis);
         s.Mode = (ScreenMode)_mode.SelectedItem!;
         s.DefaultScreen = (ScreenKind)_default.SelectedItem!;
-        s.DockIdleSeconds = 1;
         s.RefreshMs = (int)(_refresh.Value * 1000);
         s.Hotkey = _hotkey.Text.Trim();
         s.StartWithWindows = _autostart.Checked;
@@ -362,8 +374,43 @@ public sealed class SettingsForm : Form
             HoldSeconds = (double)_hold.Value,
         };
         s.Sensors = sensors;
+        return s;
+    }
+
+    /// <summary>Names of the form-owned settings whose control values differ from what was loaded.</summary>
+    static IEnumerable<string> Changed(AppSettings edited, AppSettings loaded) =>
+        FormFields.Where(name =>
+        {
+            var p = typeof(AppSettings).GetProperty(name)!;
+            return JsonSerializer.Serialize(p.GetValue(edited)) != JsonSerializer.Serialize(p.GetValue(loaded));
+        });
+
+    /// <remarks>
+    /// Other pages, the tray menu and profiles change settings while this window is open, so Save writes only the
+    /// values the user changed here, on top of the live settings, and never puts stale ones back.
+    /// </remarks>
+    void Save()
+    {
+        if (FromControls(_edit, report: true) is not { } edited) return;
+        var s = Clone(_current?.Invoke() ?? _edit);
+        foreach (var name in Changed(edited, _edit))
+        {
+            var p = typeof(AppSettings).GetProperty(name)!;
+            p.SetValue(s, p.GetValue(edited));
+        }
+        s.DockIdleSeconds = 1;
         _apply(s);
+        _edit = Clone(s);
+        LoadValues();
         _status.Text = $"Saved at {DateTime.Now:HH:mm:ss}";
+    }
+
+    /// <summary>When the window comes back to the front, show changes made elsewhere (unless there are unsaved edits).</summary>
+    void RefreshFromLive()
+    {
+        if (_current is null || FromControls(_edit, report: false) is not { } edited || Changed(edited, _edit).Any()) return;
+        _edit = Clone(_current());
+        LoadValues();
     }
 
     static Color ToColor(string hex)

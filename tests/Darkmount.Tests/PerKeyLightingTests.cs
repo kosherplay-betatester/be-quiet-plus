@@ -84,6 +84,16 @@ public class PerKeyLightingTests
     }
 
     [Fact]
+    public void Unknown_effect_values_render_as_static_instead_of_throwing()
+    {
+        var layer = JsonSerializer.Deserialize<LightLayer>("""{"Effect":99,"Colors":["00FF00"]}""")!;
+        Assert.Equal(SceneEffect.Static, SceneEffects.Get(layer.Effect).Effect);
+
+        var frame = Render(new LightingScene { Layers = [layer] });
+        Assert.Equal(new LampColor(0, 255, 0), frame[10]);
+    }
+
+    [Fact]
     public void Per_key_effect_is_in_the_catalogue()
     {
         var info = SceneEffects.Get(SceneEffect.PerKey);

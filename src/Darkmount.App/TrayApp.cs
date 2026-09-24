@@ -253,11 +253,17 @@ public sealed class TrayApp : ApplicationContext
 
     void ShowSettings()
     {
-        if (_settingsForm is { IsDisposed: false }) { _settingsForm.Activate(); return; }
+        if (_settingsForm is { IsDisposed: false } open)
+        {
+            if (open.WindowState == FormWindowState.Minimized) open.WindowState = FormWindowState.Maximized;
+            open.Activate();
+            return;
+        }
         _settingsForm = new SettingsForm(_settings, ApplySettings, StatusReport, _keyboard, _dock, _macros,
             _profiles, () => _pipeline.LastSnapshot?.GameName, HomeStatus, SetMode,
             () => { _dock.Paused = !_dock.Paused; _dock.Tick(); }, liveSettings: () => _settings, rgb: _rgb,
             updates: new Pages.UpdateActions(CheckForUpdates, r => OfferUpdate(r, userAsked: true), () => _latestRelease));
+        _settingsForm.WindowState = FormWindowState.Maximized; // the pages (keyboard pictures, gallery) use the room
         _settingsForm.Show();
     }
 
@@ -445,7 +451,8 @@ public sealed class TrayApp : ApplicationContext
         SaveSettings();
         if (!_hotkey.Register(updated.Hotkey))
             Balloon("OverMount", $"The hotkey '{updated.Hotkey}' is not available.", ToolTipIcon.Warning);
-        _focusHotkey.Register(updated.FocusHotkey);
+        if (!_focusHotkey.Register(updated.FocusHotkey))
+            Balloon("OverMount", $"The focus-timer hotkey '{updated.FocusHotkey}' is not available.", ToolTipIcon.Warning);
         TrySetAutostart(updated.StartWithWindows);
         ApplyFocusDurations();
         if (sensorsChanged) RestartPipeline();

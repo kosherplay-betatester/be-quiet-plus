@@ -77,7 +77,7 @@ internal static class SceneShaders
         return s <= 5 ? 0.3 + 0.175 * (s - 1) : 1 + 0.2 * (s - 5);
     }
 
-    public static Shader Create(LayerFrame f) => f.Layer.Effect switch
+    public static Shader Create(LayerFrame f) => f.Info.Effect switch // Info maps unknown values to Static
     {
         SceneEffect.Static => Static(f),
         SceneEffect.ColorWave => ColorWave(f),

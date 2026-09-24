@@ -189,6 +189,14 @@ public sealed class RgbEngine : IDisposable
                 Status = "Keyboard lighting not available";
                 Thread.Sleep(2000);
             }
+            catch (Exception e)
+            {
+                // A bug in a scene must never end the app (this is a raw thread): hand the LEDs back and retry.
+                Log.Write($"RGB engine error: {e}");
+                try { CloseDevice(handBack: true); } catch (Exception) { }
+                Status = "Lighting error (see the log); retrying";
+                Thread.Sleep(2000);
+            }
         }
         HandBack("Off");
     }
