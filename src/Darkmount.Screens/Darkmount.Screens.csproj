@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp" Version="4.152.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Darkmount.Sensors\Darkmount.Sensors.csproj" />
+  </ItemGroup>
+
+</Project>

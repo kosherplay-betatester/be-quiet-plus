@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Darkmount.QLink\Darkmount.QLink.csproj" />
+    <ProjectReference Include="..\Darkmount.Dock\Darkmount.Dock.csproj" />
+    <ProjectReference Include="..\Darkmount.Sensors\Darkmount.Sensors.csproj" />
+    <ProjectReference Include="..\Darkmount.Screens\Darkmount.Screens.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp" Version="4.152.1" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+</Project>

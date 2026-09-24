@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Darkmount.App/Darkmount.App.csproj" />
+    <Project Path="src/Darkmount.Dock/Darkmount.Dock.csproj" />
+    <Project Path="src/Darkmount.QLink/Darkmount.QLink.csproj" />
+    <Project Path="src/Darkmount.Screens/Darkmount.Screens.csproj" />
+    <Project Path="src/Darkmount.Sensors/Darkmount.Sensors.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Darkmount.Tests/Darkmount.Tests.csproj" />
+  </Folder>
+</Solution>
