@@ -672,7 +672,7 @@ meaning of `action` are unresolved — LOW. Capture the desktop macro editor to 
 
 * The numpad module is a **full numeric keypad** (`PAD_ID_*` 70–86, normal bindable keys, also drawn on the lighting page)
   **plus** the 8 display keys B1–B8 (109–116, only drawn on the key-binding page and only when the numpad is connected →
-  no RGB). It attaches **Left or Right** (`nA` 1/2) — the SVG draws it on either side (§8). HIGH.
+  presumably no RGB). It attaches **Left or Right** (`nA` 1/2) — the SVG draws it on either side (§8). HIGH (drawing), MED (RGB).
 * Numpad/Dock **StateChanged** notifications: `[state][position]`, or `[?][state][position]` when `data.length > 2`
   (L16922–L16955). On DeviceInfoChanged the web app re-reads GetDeviceInfo, dock and numpad state (L16900). HIGH.
 * No per-key display settings besides the image; image format per QLINK_PROTOCOL.md §4.3. Factory images are embedded
@@ -709,7 +709,8 @@ USB device or be rejected (INVALID_PARAMETER). Treat as read-only.
   `.ioprofile` = ZIP with `data` (cereal JSON, polymorphic `KeyBindingsProperty`, `LightingsProperty`, `MediaDockProperty`,
   `NumpadProperty`, …) plus `media_dock*` / `numpad*` image files (L68109, converter `PV` L26863).
 * **"Apply profile" wire sequence** (`YN` L27811 → 1 s delay → `protocol.setConfig` L60998, only if session Active; each
-  changed path produces one command, all pushed through the serial queue in object-key order):
+  changed path produces one command, all pushed through the serial queue; the order is effectively unspecified — the sort
+  comparator at L61005 is inconsistent — so the list below is grouped by type, not by wire order):
   1. KEYBOARD **SetConfig** `[lockMask]` (if `keyConfig` changed)
   2. LIGHTINGS **SetLightingMode** `[0|1]` (if enabled changed), **SetLayerConfig** `[0, …]` (if General changed)
   3. USB_DEVICE **SetPollingRate** (if changed!)
