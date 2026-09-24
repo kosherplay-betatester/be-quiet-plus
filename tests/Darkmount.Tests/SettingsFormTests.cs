@@ -17,7 +17,9 @@ public class SettingsFormTests
 #pragma warning disable WFO5001
                 Application.SetColorMode(SystemColorMode.Dark);
 #pragma warning restore WFO5001
-                using var form = new SettingsForm(new AppSettings(), _ => { });
+                var dock = new Darkmount.Dock.DockConnection(() => null,
+                    new Darkmount.Dock.DockConfigGuard(Path.Combine(Path.GetTempPath(), $"dmh-{Guid.NewGuid():N}.hex")), () => false);
+                using var form = new SettingsForm(new AppSettings(), _ => { }, () => "status", new KeyboardService(dock), dock);
                 form.StartPosition = FormStartPosition.Manual;
                 form.Location = new Point(-3000, -3000);
                 form.Show();
@@ -28,6 +30,8 @@ public class SettingsFormTests
                 for (int i = 0; i < navButtons.Count; i++)
                 {
                     navButtons[i].PerformClick();
+                    Application.DoEvents();
+                    Thread.Sleep(150);
                     Application.DoEvents();
                     using var bmp = new Bitmap(form.Width, form.Height);
                     form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size));

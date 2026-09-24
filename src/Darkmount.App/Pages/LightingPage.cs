@@ -110,6 +110,7 @@ public sealed class LightingPage : Ui.Page
         foreach (var m in info.ColorModes) _colorMode.Items.Add(m);
         _direction.Items.Clear();
         foreach (var d in info.Directions) _direction.Items.Add(d);
+        if (!info.HasDirection) { _direction.Items.Add("(not used by this effect)"); _direction.SelectedIndex = 0; }
         _directionRow.Enabled = info.HasDirection;
         _speedRow.Enabled = info.HasSpeed;
     }

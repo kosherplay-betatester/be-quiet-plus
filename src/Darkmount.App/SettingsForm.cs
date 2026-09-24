@@ -11,8 +11,8 @@ public sealed class SettingsForm : Form
     readonly AppSettings _edit;
     readonly Action<AppSettings> _apply;
     readonly Panel _content = new() { Dock = DockStyle.Fill, BackColor = Ui.Back, AutoScroll = true };
-    readonly FlowLayoutPanel _nav = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Ui.Panel, Padding = new Padding(10, 12, 10, 0) };
-    readonly PictureBox _preview = new() { Size = new Size(240, 180), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Black, Margin = new Padding(10) };
+    readonly FlowLayoutPanel _nav = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Ui.Panel, Padding = new Padding(10, 12, 10, 0), AutoScroll = true };
+    readonly PictureBox _preview = new() { Size = new Size(200, 150), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Black, Margin = new Padding(30, 6, 10, 10) };
     readonly Label _status = new() { AutoSize = true, ForeColor = Ui.Dim, Font = Ui.Body, Margin = new Padding(0, 9, 16, 0) };
     readonly List<(Button Button, Control Page)> _pages = [];
 
@@ -50,7 +50,7 @@ public sealed class SettingsForm : Form
 
         Text = "Darkmount Hub";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(1080, 680);
+        ClientSize = new Size(1140, 720);
         MinimumSize = new Size(960, 600);
         BackColor = Ui.Back;
         ForeColor = Ui.Text;
@@ -59,7 +59,7 @@ public sealed class SettingsForm : Form
         var sidebar = new Panel { Dock = DockStyle.Left, Width = 262, BackColor = Ui.Panel };
         var brand = new Label { Text = "Darkmount Hub", Font = Ui.Title, ForeColor = Ui.Text, AutoSize = true, Margin = new Padding(6, 4, 0, 14) };
         _nav.Controls.Add(brand);
-        var previewBox = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 236, FlowDirection = FlowDirection.TopDown, BackColor = Ui.Panel };
+        var previewBox = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 196, FlowDirection = FlowDirection.TopDown, BackColor = Ui.Panel };
         previewBox.Controls.Add(new Label { Text = "LIVE DOCK", ForeColor = Ui.Dim, Font = new Font("Segoe UI Semibold", 8.5f), AutoSize = true, Margin = new Padding(12, 8, 0, 0) });
         previewBox.Controls.Add(_preview);
         sidebar.Controls.Add(_nav);
@@ -77,6 +77,7 @@ public sealed class SettingsForm : Form
         if (keyboard is not null)
         {
             AddPage("Lighting", new Pages.LightingPage(keyboard));
+            AddPage("Keys", new Pages.KeysPage(keyboard));
             AddPage("Display keys", new Pages.DisplayKeysPage(keyboard));
         }
         if (dock is not null) AddPage("Dock settings", new Pages.DockSettingsPage(dock));
@@ -104,7 +105,7 @@ public sealed class SettingsForm : Form
     {
         var button = new Button
         {
-            Text = "   " + title, TextAlign = ContentAlignment.MiddleLeft, Width = 236, Height = 40, FlatStyle = FlatStyle.Flat,
+            Text = "   " + title, TextAlign = ContentAlignment.MiddleLeft, Width = 236, Height = 36, FlatStyle = FlatStyle.Flat,
             ForeColor = Ui.Text, BackColor = Ui.Panel, Font = Ui.Body, Cursor = Cursors.Hand, Margin = new Padding(0, 2, 0, 2),
         };
         button.FlatAppearance.BorderSize = 0;
