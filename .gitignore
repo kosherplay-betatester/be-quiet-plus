@@ -5,3 +5,5 @@ obj/
 dock-config-backup.hex
 tests/Darkmount.Tests/snapshots/
 publish/
+.playwright-mcp/
+*.stackdump
