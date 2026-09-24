@@ -38,7 +38,7 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
     DockConfig? _original;
     bool _needsRunningConfig;
     int _stalls;
-    DateTime _lastClock, _lastTraffic, _otherAppSince, _resumeAt;
+    DateTime _lastClock, _lastTraffic, _otherAppSince, _resumeAt, _lastDockCheck;
     int _ticking;
 
     public DockState State { get; private set; } = DockState.Disconnected;
@@ -87,7 +87,11 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
                 _otherAppSince = DateTime.UtcNow;
                 return;
             }
-            if (DateTime.UtcNow - _lastClock > ClockInterval) { _dock!.SetDateTime(DateTime.Now); _lastClock = DateTime.UtcNow; }
+            if (State == DockState.NoMediaDock)
+            {
+                if (DateTime.UtcNow - _lastDockCheck > TimeSpan.FromSeconds(5) && TrySetUpDock()) Log?.Invoke("Media dock attached");
+            }
+            else if (DateTime.UtcNow - _lastClock > ClockInterval) { _dock!.SetDateTime(DateTime.Now); _lastClock = DateTime.UtcNow; }
             if (DateTime.UtcNow - _lastTraffic >= TimeSpan.FromMilliseconds(900)) { _client.KeepAlive(); _lastTraffic = DateTime.UtcNow; }
         }
         catch (Exception e) when (IsDeviceFailure(e)) { Lost(e); }
@@ -108,20 +112,28 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
             if (!_client.IsActive && !TryBecomeActive()) return;
 
             _dock = new MediaDock(_client);
-            if (!_dock.IsConnected()) { Drop(); SetState(DockState.NoMediaDock); return; }
-
-            _original = guard.Resolve(_dock.GetConfig());
-            _dock.SetDateTime(DateTime.Now);
-            _lastClock = _lastTraffic = DateTime.UtcNow;
-            _uploader = new FrameUploader(_dock) { HeaderTimeoutMs = HeaderTimeoutMs, ChunkTimeoutMs = ChunkTimeoutMs };
-            _uploader.Log += m => Log?.Invoke(m);
-            _needsRunningConfig = true;
+            _lastTraffic = DateTime.UtcNow;
             LastError = null;
             Log?.Invoke($"Connected to Dark Mount (session {_client.Sid})");
-            SetState(DockState.Connected);
+            // Without the media dock the session stays open for keyboard features; the dock is re-checked in Tick.
+            if (!TrySetUpDock()) SetState(DockState.NoMediaDock);
         }
         catch (BootloaderModeException e) { LastError = e.Message; Drop(); SetState(DockState.Disconnected); }
         catch (Exception e) when (IsDeviceFailure(e)) { Lost(e); }
+    }
+
+    bool TrySetUpDock()
+    {
+        _lastDockCheck = DateTime.UtcNow;
+        if (!_dock!.IsConnected()) return false;
+        _original = guard.Resolve(_dock.GetConfig());
+        _dock.SetDateTime(DateTime.Now);
+        _lastClock = DateTime.UtcNow;
+        _uploader = new FrameUploader(_dock) { HeaderTimeoutMs = HeaderTimeoutMs, ChunkTimeoutMs = ChunkTimeoutMs };
+        _uploader.Log += m => Log?.Invoke(m);
+        _needsRunningConfig = true;
+        SetState(DockState.Connected);
+        return true;
     }
 
     /// <summary>Takes the Active state only when no other client holds it (never steals from IO Center Web).</summary>

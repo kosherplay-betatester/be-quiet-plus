@@ -240,6 +240,22 @@ public class DockTests : IDisposable
     }
 
     [Fact]
+    public void Detached_media_dock_keeps_the_session_for_keyboard_features()
+    {
+        var h = new Harness(_dir);
+        var respond = h.Transport.Responder;
+        h.Transport.Responder = req => req is { Feature: Features.MediaDock, Command: MediaDockCommands.GetState }
+            ? FakeTransport.Reply(req, [0, 0]) : respond(req);
+
+        h.Conn.Tick();
+
+        Assert.Equal(DockState.NoMediaDock, h.Conn.State);
+        Assert.False(h.Conn.Present(Frame(1)));
+        Assert.True(h.Conn.TryExecute(q => q.KeepAlive()));
+        Assert.False(h.Transport.Disposed);
+    }
+
+    [Fact]
     public void Missing_keyboard_stays_disconnected()
     {
         var conn = new DockConnection(() => null, new DockConfigGuard(Path.Combine(_dir, "b.hex")), () => false);
