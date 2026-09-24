@@ -25,6 +25,19 @@ public sealed class DockConfigGuard(string backupPath)
         return _original;
     }
 
+    /// <summary>The saved original, or null if none has been captured yet.</summary>
+    public DockConfig? Current => _original ?? TryLoad();
+
+    /// <summary>Replaces the saved original with settings the user chose in the app.</summary>
+    public void Update(DockConfig config)
+    {
+        if (LooksLikeAppConfig(config))
+            throw new ArgumentException("Idle delay must be at least 5 s and the screen-off timeout must be set.", nameof(config));
+        _original = config;
+        Directory.CreateDirectory(Path.GetDirectoryName(backupPath)!);
+        File.WriteAllText(backupPath, Convert.ToHexString(config.ToBytes()));
+    }
+
     DockConfig? TryLoad()
     {
         try

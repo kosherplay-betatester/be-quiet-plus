@@ -148,7 +148,7 @@ public sealed class TrayApp : ApplicationContext
     void ShowSettings()
     {
         if (_settingsForm is { IsDisposed: false }) { _settingsForm.Activate(); return; }
-        _settingsForm = new SettingsForm(_settings, ApplySettings, StatusReport, _keyboard);
+        _settingsForm = new SettingsForm(_settings, ApplySettings, StatusReport, _keyboard, _dock);
         _settingsForm.Show();
     }
 

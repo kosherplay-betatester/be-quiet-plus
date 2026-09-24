@@ -208,6 +208,25 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
         }
     }
 
+    /// <summary>The user's own dock settings (restored on exit/pause), or null before the first connection.</summary>
+    public DockConfig? UserDockConfig => _original ?? guard.Current;
+
+    /// <summary>
+    /// Saves new user dock settings (menu colour, clock, idle behaviour). While the app drives the dock the
+    /// menu colour and clock format apply immediately; the rest applies when the app pauses or exits.
+    /// </summary>
+    public void UpdateUserDockConfig(DockConfig config)
+    {
+        lock (_io)
+        {
+            guard.Update(config);
+            _original = config;
+            if (_dock is null || State != DockState.Ready) return;
+            try { _dock.SetConfig(DockConfigGuard.Running(config, IdleSeconds)); }
+            catch (Exception e) when (IsDeviceFailure(e)) { Lost(e); }
+        }
+    }
+
     /// <summary>
     /// Runs keyboard commands (lighting, bindings, …) on the shared session, between frame uploads.
     /// Returns false when the keyboard is not connected.

@@ -41,7 +41,8 @@ public sealed class SettingsForm : Form
     readonly System.Windows.Forms.Timer _statusTimer = new() { Interval = 1000 };
 
     /// <param name="status">Returns a multi-line status report for the Status page (null hides the page).</param>
-    public SettingsForm(AppSettings current, Action<AppSettings> apply, Func<string>? status = null, KeyboardService? keyboard = null)
+    public SettingsForm(AppSettings current, Action<AppSettings> apply, Func<string>? status = null,
+        KeyboardService? keyboard = null, Darkmount.Dock.DockConnection? dock = null)
     {
         _apply = apply;
         _status2 = status;
@@ -77,6 +78,7 @@ public sealed class SettingsForm : Form
         {
             AddPage("Display keys", new Pages.DisplayKeysPage(keyboard));
         }
+        if (dock is not null) AddPage("Dock settings", new Pages.DockSettingsPage(dock));
         if (_status2 is not null)
         {
             var sp = new Ui.Page("Status", "Live diagnostics: connection, uploads and sensor readings.");

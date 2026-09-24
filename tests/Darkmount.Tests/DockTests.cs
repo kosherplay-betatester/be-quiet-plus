@@ -256,6 +256,35 @@ public class DockTests : IDisposable
     }
 
     [Fact]
+    public void Guard_update_saves_user_choices_but_rejects_app_style_configs()
+    {
+        var path = Path.Combine(_dir, "g.hex");
+        var guard = new DockConfigGuard(path);
+        var blue = DockConfig.UserOriginal with { MenuR = 0, MenuG = 0x80, MenuB = 0xFF, Clock24h = false };
+
+        guard.Update(blue);
+
+        Assert.Equal(blue, new DockConfigGuard(path).Current);
+        Assert.Throws<ArgumentException>(() => guard.Update(blue with { IdleSeconds = 2 }));
+    }
+
+    [Fact]
+    public void Changing_dock_settings_while_running_applies_colour_and_clock_now()
+    {
+        var h = new Harness(_dir);
+        h.Conn.Tick();
+        h.Conn.Present(Frame(3));
+        var green = DockConfig.UserOriginal with { MenuR = 0, MenuG = 0xFF, MenuB = 0 };
+
+        h.Conn.UpdateUserDockConfig(green);
+
+        var sent = DockConfig.FromBytes(h.SetConfigs()[^1].Data);
+        Assert.Equal(DockConfigGuard.Running(green, 3), sent);
+        h.Conn.Dispose();
+        Assert.Equal(green, DockConfig.FromBytes(h.SetConfigs()[^1].Data)); // restored on exit
+    }
+
+    [Fact]
     public void Missing_keyboard_stays_disconnected()
     {
         var conn = new DockConnection(() => null, new DockConfigGuard(Path.Combine(_dir, "b.hex")), () => false);
