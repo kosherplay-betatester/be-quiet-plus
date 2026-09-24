@@ -2,37 +2,52 @@ using HidSharp;
 
 namespace Darkmount.QLink;
 
-/// <summary>Talks to the Dark Mount vendor interface (VID 0x373F, PID 0x0001, MI_02, usage page 0xFF00).</summary>
+/// <summary>
+/// Talks to a be quiet! keyboard's vendor interface (VID 0x373F, usage page 0xFF00, 64-byte reports): the Dark Mount
+/// (PID 0x0001, interface MI_02) or a Light Mount (see <see cref="KeyboardModel"/>).
+/// </summary>
 public sealed class HidSharpTransport : IHidTransport
 {
-    public const int VendorId = 0x373F;
-    public const int ProductId = 0x0001;
-    public const int BootloaderProductId = 0x0009;
+    public const int VendorId = KeyboardModel.VendorId;
 
     readonly HidStream _stream;
     readonly byte[] _rx = new byte[Frame.Size + 1];
     readonly byte[] _tx = new byte[Frame.Size + 1];
 
-    HidSharpTransport(HidStream stream) => _stream = stream;
+    HidSharpTransport(HidStream stream, KeyboardModel model)
+    {
+        _stream = stream;
+        Model = model;
+    }
 
-    /// <summary>Opens the keyboard, or returns null when it is not connected.</summary>
-    /// <exception cref="BootloaderModeException">The keyboard is in bootloader mode.</exception>
+    /// <summary>Which keyboard this transport is connected to.</summary>
+    public KeyboardModel Model { get; }
+
+    /// <summary>Opens the first supported keyboard, or returns null when none is connected.</summary>
+    /// <exception cref="BootloaderModeException">A keyboard is in firmware-update (bootloader) mode.</exception>
     public static HidSharpTransport? TryOpen()
     {
         var devices = DeviceList.Local.GetHidDevices(VendorId).ToList();
-        if (devices.Any(d => d.ProductID == BootloaderProductId)) throw new BootloaderModeException();
+        if (devices.Any(d => KeyboardModel.BootloaderProductIds.Contains(d.ProductID))) throw new BootloaderModeException();
 
-        var device = devices
-            .Where(d => d.ProductID == ProductId && MaxOutput(d) == Frame.Size + 1)
-            .OrderByDescending(d => d.DevicePath.Contains("mi_02", StringComparison.OrdinalIgnoreCase))
-            .FirstOrDefault();
-        if (device is null || !device.TryOpen(out HidStream stream)) return null;
-        stream.WriteTimeout = 1000;
-        return new HidSharpTransport(stream);
+        foreach (var model in KeyboardModel.All)
+        {
+            var device = devices
+                .Where(d => d.ProductID == model.ProductId && MaxOutput(d) == Frame.Size + 1)
+                .OrderByDescending(d => d.DevicePath.Contains("mi_02", StringComparison.OrdinalIgnoreCase))
+                .FirstOrDefault();
+            if (device is not null && device.TryOpen(out HidStream stream))
+            {
+                stream.WriteTimeout = 1000;
+                return new HidSharpTransport(stream, model);
+            }
+        }
+        return null;
     }
 
     public static bool IsPresent() =>
-        DeviceList.Local.GetHidDevices(VendorId).Any(d => d.ProductID is ProductId or BootloaderProductId);
+        DeviceList.Local.GetHidDevices(VendorId).Any(d =>
+            KeyboardModel.ForProductId(d.ProductID) is not null || KeyboardModel.BootloaderProductIds.Contains(d.ProductID));
 
     static int MaxOutput(HidDevice d)
     {

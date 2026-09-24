@@ -14,7 +14,7 @@ public sealed class KeyboardService(DockConnection dock)
     /// <summary>Why keyboard settings can't be edited right now, or null when they can.</summary>
     public string? UnavailableReason => dock.State switch
     {
-        DockState.Connected or DockState.Ready or DockState.NoMediaDock => null,
+        DockState.Connected or DockState.Ready or DockState.NoMediaDock or DockState.KeyboardOnly => null,
         DockState.PausedForIoCenter => "IO Center is running. Close it to edit keyboard settings here.",
         DockState.PausedByUser => "Darkmount Hub is paused. Resume it from the tray menu to edit keyboard settings.",
         DockState.PausedForOtherApp => "Another app (e.g. IO Center Web) is using the keyboard.",

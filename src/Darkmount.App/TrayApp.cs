@@ -241,6 +241,7 @@ public sealed class TrayApp : ApplicationContext
             DockState.PausedByUser => "Paused",
             DockState.PausedForOtherApp => "Paused: another app is using the keyboard",
             DockState.NoMediaDock => "Media dock not attached",
+            DockState.KeyboardOnly => $"{_dock.Model.Name} connected (no screen)",
             _ => _dock.LastError is { } err ? $"Keyboard not available ({err})" : "Keyboard not found",
         };
         _status.Text = state;

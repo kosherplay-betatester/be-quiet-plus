@@ -7,6 +7,9 @@ public interface IHidTransport : IDisposable
 
     /// <summary>Reads one 64-byte packet; throws <see cref="TimeoutException"/> when nothing arrives in time.</summary>
     byte[] Read(int timeoutMs);
+
+    /// <summary>The keyboard model on the other end (fakes default to the Dark Mount).</summary>
+    KeyboardModel Model => KeyboardModel.DarkMount;
 }
 
 public sealed class QLinkException(QLinkStatus status, string message) : Exception(message)

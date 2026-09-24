@@ -17,6 +17,8 @@ public enum DockState
     PausedForOtherApp,
     /// <summary>Keyboard present but the media dock module is detached.</summary>
     NoMediaDock,
+    /// <summary>A keyboard without a screen (Light Mount): keyboard features only.</summary>
+    KeyboardOnly,
 }
 
 /// <summary>
@@ -42,6 +44,9 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
     int _ticking;
 
     public DockState State { get; private set; } = DockState.Disconnected;
+
+    /// <summary>The connected keyboard model (Dark Mount until something else connects).</summary>
+    public KeyboardModel Model { get; private set; } = KeyboardModel.DarkMount;
     public string? LastError { get; private set; }
 
     /// <summary>
@@ -94,7 +99,7 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
             {
                 if (DateTime.UtcNow - _lastDockCheck > TimeSpan.FromSeconds(5) && TrySetUpDock()) Log?.Invoke("Media dock attached");
             }
-            else if (DateTime.UtcNow - _lastClock > ClockInterval) { _dock!.SetDateTime(DateTime.Now); _lastClock = DateTime.UtcNow; }
+            else if (_dock is not null && DateTime.UtcNow - _lastClock > ClockInterval) { _dock.SetDateTime(DateTime.Now); _lastClock = DateTime.UtcNow; }
             if (DateTime.UtcNow - _lastTraffic >= TimeSpan.FromMilliseconds(900)) { _client.KeepAlive(); _lastTraffic = DateTime.UtcNow; }
         }
         catch (Exception e) when (IsDeviceFailure(e)) { Lost(e); }
@@ -114,10 +119,12 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
             _resumeAt = default;
             if (!_client.IsActive && !TryBecomeActive()) return;
 
-            _dock = new MediaDock(_client);
+            Model = _transport.Model;
             _lastTraffic = DateTime.UtcNow;
             LastError = null;
-            Log?.Invoke($"Connected to Dark Mount (session {_client.Sid})");
+            Log?.Invoke($"Connected to {Model.Name} (session {_client.Sid})");
+            if (!Model.HasMediaDock) { SetState(DockState.KeyboardOnly); return; }
+            _dock = new MediaDock(_client);
             // Without the media dock the session stays open for keyboard features; the dock is re-checked in Tick.
             if (!TrySetUpDock()) SetState(DockState.NoMediaDock);
         }

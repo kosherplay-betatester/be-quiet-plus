@@ -17,6 +17,9 @@ public sealed class FakeTransport : IHidTransport
     public Func<Frame, IEnumerable<byte[]>?> Responder { get; set; } = Ok;
     public bool Disposed { get; private set; }
 
+    /// <summary>Which keyboard the fake pretends to be.</summary>
+    public KeyboardModel Model { get; set; } = KeyboardModel.DarkMount;
+
     public void Write(ReadOnlySpan<byte> packet)
     {
         var p = packet.ToArray();

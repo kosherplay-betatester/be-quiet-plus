@@ -318,6 +318,32 @@ public class DockTests : IDisposable
     }
 
     [Fact]
+    public void Light_Mount_connects_keyboard_only_and_never_touches_the_dock()
+    {
+        var h = new Harness(_dir);
+        h.Transport.Model = KeyboardModel.LightMount;
+
+        h.Conn.Tick();
+        h.Conn.Tick();
+
+        Assert.Equal(DockState.KeyboardOnly, h.Conn.State);
+        Assert.Equal("Light Mount", h.Conn.Model.Name);
+        Assert.False(h.Conn.Present(Frame(1)));
+        Assert.DoesNotContain(h.Transport.Requests, r => r.Feature == Features.MediaDock);
+        Assert.True(h.Conn.TryExecute(q => q.KeepAlive()));
+    }
+
+    [Fact]
+    public void Model_table_knows_the_Light_Mount_family_and_their_bootloaders()
+    {
+        Assert.Equal("Light Mount", KeyboardModel.ForProductId(0x0002)!.Name);
+        Assert.False(KeyboardModel.ForProductId(0x0018)!.HasNumpad);
+        Assert.Contains(0x0009, KeyboardModel.BootloaderProductIds);
+        Assert.Contains(0x000A, KeyboardModel.BootloaderProductIds);
+        Assert.Null(KeyboardModel.ForProductId(0x0009));
+    }
+
+    [Fact]
     public void Missing_keyboard_stays_disconnected()
     {
         var conn = new DockConnection(() => null, new DockConfigGuard(Path.Combine(_dir, "b.hex")), () => false);
