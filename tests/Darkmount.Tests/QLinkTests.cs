@@ -180,16 +180,38 @@ public class QLinkTests
     }
 
     [Fact]
-    public void A_held_reply_is_flushed_by_a_nudge_without_resending_the_request()
+    public void A_held_image_write_reply_is_flushed_by_repeating_the_write()
     {
         var t = new HoldingTransport();
-        using var q = new QLinkClient(t) { NudgeAfterMs = 50 };
+        using var q = new QLinkClient(t) { NudgeAfterMs = 50, NudgeMode = NudgeMode.RepeatRequest };
+
+        q.Send(Features.MediaDock, MediaDockCommands.SetImage, new byte[20], timeoutMs: 2000);
+
+        Assert.Equal(2, t.SetImageWrites);
+        Assert.Equal(0, t.GetStateWrites);
+        Assert.Equal(1, q.Nudges);
+    }
+
+    [Fact]
+    public void GetState_nudge_mode_sends_a_status_request()
+    {
+        var t = new HoldingTransport();
+        using var q = new QLinkClient(t) { NudgeAfterMs = 50, NudgeMode = NudgeMode.GetState };
 
         q.Send(Features.MediaDock, MediaDockCommands.SetImage, new byte[20], timeoutMs: 2000);
 
         Assert.Equal(1, t.SetImageWrites);
         Assert.Equal(1, t.GetStateWrites);
-        Assert.Equal(1, q.Nudges);
+    }
+
+    [Fact]
+    public void Non_image_requests_are_never_nudged_or_repeated()
+    {
+        var t = new FakeTransport { Responder = _ => null };
+        using var q = new QLinkClient(t) { NudgeAfterMs = 10 };
+
+        Assert.Throws<TimeoutException>(() => q.Send(Features.MediaDock, MediaDockCommands.SetConfig, new byte[9], timeoutMs: 100));
+        Assert.Single(t.Written);
     }
 
     [Fact]

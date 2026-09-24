@@ -9,8 +9,12 @@ public static class Log
 
     public static string Directory => Dir;
 
+    /// <summary>Turned off by unit tests so they never write to the user's log.</summary>
+    public static bool Enabled { get; set; } = true;
+
     public static void Write(string message)
     {
+        if (!Enabled) return;
         try
         {
             lock (Gate)

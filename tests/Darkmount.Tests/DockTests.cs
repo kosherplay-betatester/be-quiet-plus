@@ -45,21 +45,24 @@ public class DockTests : IDisposable
         var t = new FakeTransport();
         var q = new QLinkClient(t);
         t.Responder = req => req.Command == MediaDockCommands.SetImage && OffsetOf(req) == 4009 ? null : FakeTransport.Ok(req);
-        var up = new FrameUploader(q, new MediaDock(q));
+        q.NudgeAfterMs = 20;
+        var up = new FrameUploader(q, new MediaDock(q)) { HeaderTimeoutMs = 200, ChunkTimeoutMs = 200 };
 
         Assert.Equal(UploadResult.Stalled, up.Upload(Frame(2)));
 
+        // Stopped at the stalled chunk: only that same chunk was repeated (as a nudge), nothing after it.
         var offsets = SetImages(t).Select(OffsetOf).ToList();
-        Assert.Equal([0u, 9u, 4009u], offsets); // stopped at the stalled chunk; nothing re-sent
+        Assert.Equal([0u, 9u, 4009u], offsets.Take(3));
+        Assert.All(offsets.Skip(3), o => Assert.Equal(4009u, o));
     }
 
     [Fact]
     public void A_sleeping_dock_that_ignores_the_header_gets_nothing_else()
     {
         var t = new FakeTransport { Responder = req => req.Command == MediaDockCommands.SetImage ? null : FakeTransport.Ok(req) };
-        var q = new QLinkClient(t);
+        var q = new QLinkClient(t) { NudgeAfterMs = 0 };
 
-        Assert.Equal(UploadResult.Stalled, new FrameUploader(q, new MediaDock(q)).Upload(Frame(2)));
+        Assert.Equal(UploadResult.Stalled, new FrameUploader(q, new MediaDock(q)) { HeaderTimeoutMs = 100 }.Upload(Frame(2)));
         Assert.Single(SetImages(t));
     }
 
@@ -124,6 +127,8 @@ public class DockTests : IDisposable
             Conn = new DockConnection(() => Transport, new DockConfigGuard(Path.Combine(dir, "b.hex")), () => IoCenter)
             {
                 IdleSeconds = 3,
+                HeaderTimeoutMs = 200,
+                ChunkTimeoutMs = 200,
             };
         }
 

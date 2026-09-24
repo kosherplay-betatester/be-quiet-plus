@@ -160,6 +160,46 @@ public static class Sequence
         }
     }
 
+    /// <summary>Full uploads with long timeouts, printing the latency of the header and the slowest chunks.</summary>
+    public static void Latency(QLinkClient q, int frames)
+    {
+        var px = new byte[W * H * 2];
+        for (int f = 0; f < frames; f++)
+        {
+            Array.Fill(px, (byte)(f * 40));
+            var lat = new List<(int offset, long ms)>();
+            var hdr = new byte[5 + 9];
+            BinaryPrimitives.WriteUInt32LittleEndian(hdr.AsSpan(5), (uint)(px.Length + 9));
+            BinaryPrimitives.WriteUInt16LittleEndian(hdr.AsSpan(9), W);
+            BinaryPrimitives.WriteUInt16LittleEndian(hdr.AsSpan(11), H);
+            hdr[13] = Formats.Rgb565;
+            var total = Stopwatch.StartNew();
+            var sw = Stopwatch.StartNew();
+            Timed(q, hdr, -1, lat);
+            for (int c = 0; c < px.Length; c += 4000)
+            {
+                var buf = new byte[5 + Math.Min(4000, px.Length - c)];
+                BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(1), (uint)(9 + c));
+                px.AsSpan(c, buf.Length - 5).CopyTo(buf.AsSpan(5));
+                Timed(q, buf, c, lat);
+            }
+            var worst = lat.Skip(1).OrderByDescending(x => x.ms).Take(3);
+            Console.WriteLine($"frame {f + 1}: total {total.ElapsedMilliseconds} ms, header {lat[0].ms} ms, first chunk {lat[1].ms} ms, " +
+                              $"slowest chunks {string.Join(", ", worst.Select(x => $"{x.ms} ms @ {x.offset}"))}");
+            q.KeepAlive();
+        }
+    }
+
+    static void Timed(QLinkClient q, byte[] payload, int offset, List<(int, long)> lat)
+    {
+        var sw = Stopwatch.StartNew();
+        try { q.Send(QLinkClient.FeatMediaDock, 7, payload, timeoutMs: 30000); }
+        catch (TimeoutException) { Console.WriteLine($"    offset {offset}: NO reply within 30 s"); throw; }
+        long ms = sw.ElapsedMilliseconds;
+        if (ms > 400) Console.WriteLine($"    offset {offset}: {ms} ms");
+        lat.Add((offset, ms));
+    }
+
     static void SendHeader(QLinkClient q, int pixelBytes)
     {
         var header = new byte[5 + 9];

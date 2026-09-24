@@ -32,6 +32,17 @@ public static class NumpadCommands
     public const byte GetState = 1, SetImage = 2, GetImage = 3;
 }
 
+/// <summary>How <see cref="QLinkClient"/> flushes a reply the firmware is holding back.</summary>
+public enum NudgeMode
+{
+    /// <summary>Send a media-dock GetState (does not flush held image-write replies).</summary>
+    GetState,
+    /// <summary>Send the same request again with a new id; either reply is accepted (idempotent requests only).</summary>
+    RepeatRequest,
+    /// <summary>Send the same command with only the first 5 payload bytes (slot + offset, no pixels).</summary>
+    TruncatedRepeat,
+}
+
 public enum QLinkStatus : byte
 {
     Success = 0, InvalidSessionId, InvalidFeatureId, InvalidCommandId, InvalidRequestId, InvalidParameter, Timeout,

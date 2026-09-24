@@ -7,6 +7,8 @@ public class AppLogicTests
 {
     static readonly DateTime T0 = new(2026, 9, 24, 12, 0, 0);
 
+    public AppLogicTests() => Log.Enabled = false;
+
     // ---------------------------------------------------------------- AlertEngine
 
     [Fact]

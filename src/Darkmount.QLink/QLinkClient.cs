@@ -28,10 +28,13 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
     /// The firmware sometimes holds a finished reply until it receives more traffic. When no reply has
     /// arrived after this many ms, a harmless media-dock GetState is sent to flush it (0 = never).
     /// </summary>
-    public int NudgeAfterMs { get; set; } = 600;
+    public int NudgeAfterMs { get; set; } = 200;
 
     /// <summary>Number of nudges sent so far (diagnostics).</summary>
     public int Nudges { get; private set; }
+
+    /// <summary>What to send as a nudge. Only use <see cref="NudgeMode.RepeatRequest"/> for idempotent requests.</summary>
+    public NudgeMode NudgeMode { get; set; } = NudgeMode.TruncatedRepeat;
 
     byte NextRequestId() => _reqId = (byte)(_reqId == 255 ? 1 : _reqId + 1);
 
@@ -43,11 +46,16 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
         lock (_gate)
         {
             byte expected = NextRequestId();
+            Span<byte> accepted = stackalloc byte[16];
+            int acceptedCount = 0;
+            accepted[acceptedCount++] = expected;
             foreach (var packet in Frame.Build(Sid, expected, feature, command, data))
                 transport.Write(packet);
 
             var sw = Stopwatch.StartNew();
-            long nextNudge = NudgeAfterMs > 0 ? NudgeAfterMs : long.MaxValue;
+            // Only image writes show the held-reply quirk, and only they are safe to repeat.
+            bool canNudge = NudgeAfterMs > 0 && feature == Features.MediaDock && command is MediaDockCommands.SetImage;
+            long nextNudge = canNudge ? NudgeAfterMs : long.MaxValue;
             while (true)
             {
                 Frame f;
@@ -60,13 +68,14 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
                 {
                     if (sw.ElapsedMilliseconds >= nextNudge)
                     {
-                        Nudge();
+                        byte? repeatId = Nudge(feature, command, data);
+                        if (repeatId is { } id && acceptedCount < accepted.Length) accepted[acceptedCount++] = id;
                         nextNudge = sw.ElapsedMilliseconds + NudgeAfterMs;
                     }
                     continue;
                 }
                 if (f.IsNotification || f.IsContinuation) continue;
-                if (f.Feature != feature || f.Command != command || f.ReqId != expected) continue;
+                if (f.Feature != feature || f.Command != command || !accepted[..acceptedCount].Contains(f.ReqId)) continue;
                 if (f.Status != 0)
                     throw new QLinkException((QLinkStatus)f.Status, $"{feature}/{command} failed: {(QLinkStatus)f.Status}");
 
@@ -82,12 +91,22 @@ public sealed class QLinkClient(IHidTransport transport) : IDisposable
         }
     }
 
-    /// <summary>Sends a GetState whose reply is ignored; its only purpose is to flush a held reply.</summary>
-    void Nudge()
+    /// <summary>
+    /// Sends traffic whose only purpose is to flush a held reply. Returns the request id of a repeated
+    /// request (whose reply also counts as the answer), or null.
+    /// </summary>
+    byte? Nudge(byte feature, byte command, ReadOnlySpan<byte> data)
     {
-        foreach (var packet in Frame.Build(Sid, NextRequestId(), Features.MediaDock, MediaDockCommands.GetState, []))
-            transport.Write(packet);
         Nudges++;
+        byte id = NextRequestId();
+        var packets = NudgeMode switch
+        {
+            NudgeMode.RepeatRequest => Frame.Build(Sid, id, feature, command, data),
+            NudgeMode.TruncatedRepeat => Frame.Build(Sid, id, feature, command, data[..Math.Min(5, data.Length)]),
+            _ => Frame.Build(Sid, id, Features.MediaDock, MediaDockCommands.GetState, []),
+        };
+        foreach (var packet in packets) transport.Write(packet);
+        return NudgeMode == NudgeMode.GetState ? null : id;
     }
 
     static int Remaining(Stopwatch sw, int timeoutMs)

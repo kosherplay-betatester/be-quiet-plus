@@ -57,6 +57,32 @@ if (ioCenter.Count > 0 && !force)
     return 2;
 }
 
+if (mode == "drain")
+{
+    // Listen only: print every frame the keyboard sends for N seconds (no session, nothing written).
+    var d = QLinkClient.FindDevice()!;
+    using var s = d.Open();
+    s.ReadTimeout = 1000;
+    var buf = new byte[65];
+    var clock = Stopwatch.StartNew();
+    int seconds = Opt("--seconds", 60), count = 0;
+    long last = 0;
+    while (clock.ElapsedMilliseconds < seconds * 1000L)
+    {
+        try
+        {
+            s.Read(buf, 0, 65);
+            count++;
+            last = clock.ElapsedMilliseconds;
+            if (count <= 5 || count % 20 == 0)
+                Console.WriteLine($"[{last / 1000.0:F1}s] #{count} sid {buf[3]:X2} req {buf[5]} {buf[6]}/{buf[7]} status {buf[4]}");
+        }
+        catch (TimeoutException) { if (clock.ElapsedMilliseconds - last > 15000 && count > 0) break; }
+    }
+    Console.WriteLine($"Received {count} frames; last at {last / 1000.0:F1}s");
+    return 0;
+}
+
 var dev = QLinkClient.FindDevice();
 if (dev is null)
 {
@@ -68,8 +94,8 @@ Console.WriteLine($"Found: {dev.GetProductName()}  {dev.DevicePath}");
 using var q = QLinkClient.Open(dev);
 q.Verbose = verbose;
 q.ContinuationLengthExtra = contExtra;
-q.OnNotification = f =>
-    Console.WriteLine($"  [notification] feature {f.Feature} id {f.Command} data {Convert.ToHexString(f.Data)}");
+q.OnNotification = f => { if (f.Feature == 18) return;
+    Console.WriteLine($"  [notification] feature {f.Feature} id {f.Command} data {Convert.ToHexString(f.Data)}"); };
 
 q.OpenSession();
 Console.WriteLine($"Session: SID {q.Sid}, state {(q.SessionState == 1 ? "Active" : "Inactive")}, timeout {q.SessionTimeout}s");
@@ -113,6 +139,7 @@ switch (mode)
     case "sequence": Sequence.Run(q, Opt("--hold", 10)); break;
     case "trigger": Sequence.Trigger(q, Opt("--hold", 12)); break;
     case "headercost": Sequence.HeaderCost(q); break;
+    case "latency": Sequence.Latency(q, Opt("--frames", 4)); break;
     default: Console.WriteLine($"Unknown mode '{mode}'"); return 1;
 }
 return 0;

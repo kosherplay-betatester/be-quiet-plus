@@ -20,9 +20,12 @@ public sealed class FrameUploader(QLinkClient q, MediaDock dock)
 {
     public const int Width = 320, Height = 240;
     public const int FrameBytes = Width * Height * 2;
-    public const int ChunkSize = 4000;
+    public const int DefaultChunkSize = 4000;
 
     readonly object _gate = new();
+
+    /// <summary>Pixel bytes per SetImage request (sent as one multi-frame message).</summary>
+    public int ChunkSize { get; init; } = DefaultChunkSize;
     readonly byte[] _header = MediaDock.ImageHeader(Width, Height, FrameBytes);
 
     /// <summary>How long to wait for the header reply (the dock prepares its buffer; can take seconds).</summary>
