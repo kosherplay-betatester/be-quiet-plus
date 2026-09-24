@@ -153,7 +153,8 @@ public sealed class TrayApp : ApplicationContext
     /// <summary>Applies settings saved in the settings window.</summary>
     void ApplySettings(AppSettings updated)
     {
-        bool sensorsChanged = !ReferenceEquals(updated.Sensors, _settings.Sensors);
+        bool sensorsChanged = System.Text.Json.JsonSerializer.Serialize(updated.Sensors)
+                              != System.Text.Json.JsonSerializer.Serialize(_settings.Sensors);
         _settings = updated;
         SaveSettings();
         _dock.IdleSeconds = updated.DockIdleSeconds;

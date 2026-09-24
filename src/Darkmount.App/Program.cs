@@ -28,6 +28,9 @@ static class Program
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
 
         ApplicationConfiguration.Initialize();
+#pragma warning disable WFO5001 // dark mode for common controls is marked experimental
+        Application.SetColorMode(SystemColorMode.Dark);
+#pragma warning restore WFO5001
         Application.Run(new TrayApp());
     }
 }

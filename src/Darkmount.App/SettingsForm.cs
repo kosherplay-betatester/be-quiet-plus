@@ -1,76 +1,107 @@
 using System.Text.Json;
 using Darkmount.Screens;
+using Darkmount.Sensors;
 using SkiaSharp;
 
 namespace Darkmount.App;
 
-/// <summary>Settings window with a live preview of what the dock shows.</summary>
+/// <summary>Main window: sidebar navigation, a live preview of the dock, and one page per settings area.</summary>
 public sealed class SettingsForm : Form
 {
     readonly AppSettings _edit;
     readonly Action<AppSettings> _apply;
-    readonly PictureBox _preview = new() { Width = 320, Height = 240, SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Black };
-    readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
+    readonly Panel _content = new() { Dock = DockStyle.Fill, BackColor = Ui.Back, AutoScroll = true };
+    readonly FlowLayoutPanel _nav = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Ui.Panel, Padding = new Padding(10, 12, 10, 0) };
+    readonly PictureBox _preview = new() { Size = new Size(240, 180), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Black, Margin = new Padding(10) };
+    readonly Label _status = new() { AutoSize = true, ForeColor = Ui.Dim, Font = Ui.Body, Margin = new Padding(0, 9, 16, 0) };
+    readonly List<(Button Button, Control Page)> _pages = [];
 
-    // General
-    readonly ComboBox _mode = Combo<ScreenMode>(), _default = Combo<ScreenKind>();
-    readonly NumericUpDown _idle = Number(1, 4), _refresh = Number(1.5m, 60, 0.5m, 1);
-    readonly TextBox _hotkey = new() { Width = 200 };
-    readonly CheckBox _autostart = new() { Text = "Start with Windows", AutoSize = true };
+    // Dock screen
+    readonly ComboBox _mode = Ui.Combo<ScreenMode>(), _default = Ui.Combo<ScreenKind>();
+    readonly NumericUpDown _idle = Ui.Number(1, 4), _refresh = Ui.Number(1.5m, 60, 0.5m, 1);
+    readonly TextBox _hotkey = new() { Width = 220, Font = Ui.Body };
+    readonly CheckBox _autostart = Ui.Check("Start Darkmount Hub with Windows");
 
     // Animation
-    readonly ComboBox _animKind = Combo<AnimationKind>();
-    readonly TextBox _animPath = new() { Width = 320 };
+    readonly ComboBox _animKind = Ui.Combo<AnimationKind>();
+    readonly TextBox _animPath = new() { Width = 360, Font = Ui.Body };
 
     // Alerts
-    readonly CheckBox _cpuOn = Check("CPU temperature ≥"), _gpuOn = Check("GPU temperature ≥"), _ramOn = Check("RAM usage ≥"),
-        _vramOn = Check("VRAM usage ≥"), _fpsOn = Check("FPS below");
-    readonly NumericUpDown _cpuMax = Number(50, 110), _gpuMax = Number(50, 110), _ramMax = Number(50, 100), _vramMax = Number(50, 100),
-        _fpsMin = Number(5, 240), _fpsSec = Number(1, 30), _hold = Number(0, 120);
+    readonly CheckBox _cpuOn = Ui.Check("CPU temperature at or above"), _gpuOn = Ui.Check("GPU temperature at or above"),
+        _ramOn = Ui.Check("RAM usage at or above"), _vramOn = Ui.Check("VRAM usage at or above"), _fpsOn = Ui.Check("In games, FPS below");
+    readonly NumericUpDown _cpuMax = Ui.Number(50, 110), _gpuMax = Ui.Number(50, 110), _ramMax = Ui.Number(50, 100),
+        _vramMax = Ui.Number(50, 100), _fpsMin = Ui.Number(5, 240), _fpsSec = Ui.Number(1, 30), _hold = Ui.Number(0, 120);
 
     // Sensors
-    readonly NumericUpDown _gpuIndex = Number(0, 8);
-    readonly TextBox _labels = new() { Multiline = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9), Dock = DockStyle.Fill };
+    readonly NumericUpDown _gpuIndex = Ui.Number(0, 8);
+    readonly TextBox _labels = new() { Multiline = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9.5f), Size = new Size(620, 300) };
 
     public SettingsForm(AppSettings current, Action<AppSettings> apply)
     {
         _apply = apply;
         _edit = Clone(current);
 
-        Text = "Darkmount Hub settings";
-        Icon = SystemIcons.Application;
+        Text = "Darkmount Hub";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(900, 520);
-        MinimumSize = new Size(820, 480);
-        Font = new Font("Segoe UI", 9.5f);
+        ClientSize = new Size(1080, 680);
+        MinimumSize = new Size(960, 600);
+        BackColor = Ui.Back;
+        ForeColor = Ui.Text;
+        Font = Ui.Body;
 
-        _tabs.TabPages.Add(Page("Dock screen", GeneralPage()));
-        _tabs.TabPages.Add(Page("Animation", AnimationPage()));
-        _tabs.TabPages.Add(Page("Alerts", AlertsPage()));
-        _tabs.TabPages.Add(Page("Sensors", SensorsPage()));
+        var sidebar = new Panel { Dock = DockStyle.Left, Width = 262, BackColor = Ui.Panel };
+        var brand = new Label { Text = "Darkmount Hub", Font = Ui.Title, ForeColor = Ui.Text, AutoSize = true, Margin = new Padding(6, 4, 0, 14) };
+        _nav.Controls.Add(brand);
+        var previewBox = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 236, FlowDirection = FlowDirection.TopDown, BackColor = Ui.Panel };
+        previewBox.Controls.Add(new Label { Text = "LIVE DOCK", ForeColor = Ui.Dim, Font = new Font("Segoe UI Semibold", 8.5f), AutoSize = true, Margin = new Padding(12, 8, 0, 0) });
+        previewBox.Controls.Add(_preview);
+        sidebar.Controls.Add(_nav);
+        sidebar.Controls.Add(previewBox);
 
-        var previewPanel = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 350, FlowDirection = FlowDirection.TopDown, Padding = new Padding(12) };
-        previewPanel.Controls.Add(new Label { Text = "Live dock preview", AutoSize = true, Font = new Font(Font, FontStyle.Bold) });
-        previewPanel.Controls.Add(_preview);
-        previewPanel.Controls.Add(new Label
+        var footer = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 58, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(12), BackColor = Ui.Back };
+        footer.Controls.Add(Ui.Button("Close", (_, _) => Close()));
+        footer.Controls.Add(Ui.Button("Save", (_, _) => Save(), primary: true));
+        footer.Controls.Add(_status);
+
+        AddPage("Dock screen", DockPage());
+        AddPage("Animation", AnimationPage());
+        AddPage("Alerts", AlertsPage());
+        AddPage("Sensors", SensorsPage());
+
+        Controls.Add(_content);
+        Controls.Add(footer);
+        Controls.Add(sidebar);
+        LoadValues();
+        Select(0);
+    }
+
+    // ---------------------------------------------------------------- navigation
+
+    /// <summary>Adds a sidebar entry and its page (later phases add keyboard pages here).</summary>
+    public void AddPage(string title, Control page)
+    {
+        var button = new Button
         {
-            Text = "The dock redraws about every 2 seconds (hardware limit).\nPress a dock button once if its screen is dark.",
-            AutoSize = true, ForeColor = SystemColors.GrayText, MaximumSize = new Size(320, 0),
-        });
+            Text = "   " + title, TextAlign = ContentAlignment.MiddleLeft, Width = 236, Height = 40, FlatStyle = FlatStyle.Flat,
+            ForeColor = Ui.Text, BackColor = Ui.Panel, Font = Ui.Body, Cursor = Cursors.Hand, Margin = new Padding(0, 2, 0, 2),
+        };
+        button.FlatAppearance.BorderSize = 0;
+        button.FlatAppearance.MouseOverBackColor = Ui.PanelHover;
+        int index = _pages.Count;
+        button.Click += (_, _) => Select(index);
+        _nav.Controls.Add(button);
+        _pages.Add((button, page));
+    }
 
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, Height = 48, Padding = new Padding(8) };
-        var save = new Button { Text = "Save", Width = 100, Height = 30 };
-        var close = new Button { Text = "Close", Width = 100, Height = 30 };
-        save.Click += (_, _) => Save();
-        close.Click += (_, _) => Close();
-        buttons.Controls.AddRange([close, save]);
-        AcceptButton = save;
-        CancelButton = close;
-
-        Controls.Add(_tabs);
-        Controls.Add(previewPanel);
-        Controls.Add(buttons);
-        Load();
+    void Select(int index)
+    {
+        _content.Controls.Clear();
+        _content.Controls.Add(_pages[index].Page);
+        for (int i = 0; i < _pages.Count; i++)
+        {
+            _pages[i].Button.BackColor = i == index ? Ui.PanelHover : Ui.Panel;
+            _pages[i].Button.ForeColor = i == index ? Ui.Accent : Ui.Text;
+        }
     }
 
     /// <summary>Called from the pipeline thread with a frame copy; takes ownership.</summary>
@@ -90,53 +121,70 @@ public sealed class SettingsForm : Form
         }
     }
 
-    Control GeneralPage() => Grid(
-        ("Screen", _mode),
-        ("When no game runs (Auto)", _default),
-        ("Dock menu stays up for (s)", _idle),
-        ("Refresh every (s)", _refresh),
-        ("Hotkey to switch screens", _hotkey),
-        ("", _autostart));
+    // ---------------------------------------------------------------- pages
+
+    Control DockPage()
+    {
+        var p = new Ui.Page("Dock screen", "What the media dock shows and how Darkmount Hub behaves.");
+        p.Row("Screen", _mode, "Auto shows stats while a game runs");
+        p.Row("Default screen (Auto)", _default);
+        p.Row("Dock menu stays up for", _idle, "seconds after you use the dial");
+        p.Row("Refresh every", _refresh, "seconds (the dock needs ~1.6 s per image)");
+        p.Row("Switch-screen hotkey", _hotkey);
+        p.Row("", _autostart);
+        p.Heading("Tips");
+        p.AddFull(Ui.Note("• If the dock is dark, press a dock button once: the dock only accepts images while awake.\n" +
+                          "• When IO Center runs, Darkmount Hub pauses and gives the dock back automatically.\n" +
+                          "• Exiting restores your own dock settings.", 640));
+        return p;
+    }
 
     Control AnimationPage()
     {
-        var browse = new Button { Text = "Browse…", AutoSize = true };
-        browse.Click += (_, _) => Browse();
+        var p = new Ui.Page("Animation", "Built-in themes, your own GIF or video, or a folder of pictures. " +
+            "The dock redraws about every 2 seconds, so animations play as an ambient slideshow.");
+        p.Row("Source", _animKind);
         var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        row.Controls.AddRange([_animPath, browse]);
-        var note = new Label
-        {
-            AutoSize = true, MaximumSize = new Size(480, 0), ForeColor = SystemColors.GrayText,
-            Text = "The dock can only show a new picture about every 2 seconds, so animations play as an ambient slideshow. " +
-                   "GIFs and videos are decoded on the PC; a folder shows its pictures in turn.",
-        };
-        return Grid(("Source", _animKind), ("File or folder", row), ("", note));
+        row.Controls.Add(_animPath);
+        row.Controls.Add(Ui.Button("Browse…", (_, _) => Browse()));
+        p.Row("File or folder", row);
+        return p;
     }
 
-    Control AlertsPage() => Grid(
-        ("", Pair(_cpuOn, _cpuMax, "°C")),
-        ("", Pair(_gpuOn, _gpuMax, "°C")),
-        ("", Pair(_ramOn, _ramMax, "%")),
-        ("", Pair(_vramOn, _vramMax, "%")),
-        ("", Pair(_fpsOn, _fpsMin, "FPS for", _fpsSec, "s (in games)")),
-        ("Keep alerts visible for (s)", _hold));
+    Control AlertsPage()
+    {
+        var p = new Ui.Page("Alerts", "A red banner appears on the dock (the stats move down so nothing is hidden) " +
+            "and the dock refreshes immediately.");
+        p.Row(_cpuOn, Unit(_cpuMax, "°C"));
+        p.Row(_gpuOn, Unit(_gpuMax, "°C"));
+        p.Row(_ramOn, Unit(_ramMax, "%"));
+        p.Row(_vramOn, Unit(_vramMax, "%"));
+        var fps = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        fps.Controls.AddRange([_fpsMin, Hint("FPS for at least"), _fpsSec, Hint("seconds")]);
+        p.Row(_fpsOn, fps);
+        p.Row("Keep alerts visible for", Unit(_hold, "seconds after recovery"));
+        return p;
+    }
 
     Control SensorsPage()
     {
-        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(8) };
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        panel.Controls.Add(Grid(("GPU index (0 = automatic)", _gpuIndex)));
-        panel.Controls.Add(new Label
-        {
-            AutoSize = true, MaximumSize = new Size(500, 0), ForeColor = SystemColors.GrayText,
-            Text = "Data comes from MSI Afterburner (CPU, GPU, RAM, FPS), HWiNFO (optional, enable 'Shared Memory Support') " +
-                   "and RivaTuner (game detection). Advanced: sensor label lists as JSON.",
-        });
-        panel.Controls.Add(_labels);
-        return panel;
+        var p = new Ui.Page("Sensors", "Data comes from MSI Afterburner (CPU, GPU, RAM, FPS), RivaTuner (game detection) and, " +
+            "optionally, HWiNFO with 'Shared Memory Support' enabled (preferred when available).");
+        p.Row("GPU", _gpuIndex, "0 = automatic (the busiest GPU)");
+        p.Heading("Advanced: sensor names (JSON)");
+        p.AddFull(_labels);
+        return p;
     }
+
+    static FlowLayoutPanel Unit(Control c, string unit)
+    {
+        var f = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        f.Controls.Add(c);
+        f.Controls.Add(Hint(unit));
+        return f;
+    }
+
+    static Label Hint(string text) => new() { Text = text, AutoSize = true, ForeColor = Ui.Dim, Font = Ui.Body, Margin = new Padding(6, 6, 6, 0) };
 
     void Browse()
     {
@@ -153,7 +201,9 @@ public sealed class SettingsForm : Form
             ? AnimationKind.Gif : AnimationKind.Video;
     }
 
-    new void Load()
+    // ---------------------------------------------------------------- load / save
+
+    void LoadValues()
     {
         _mode.SelectedItem = _edit.Mode;
         _default.SelectedItem = _edit.DefaultScreen;
@@ -165,14 +215,14 @@ public sealed class SettingsForm : Form
         _animPath.Text = _edit.AnimationPath ?? "";
 
         var a = _edit.Alerts;
-        (_cpuOn.Checked, _cpuMax.Value) = (a.CpuTempEnabled, Clamp(_cpuMax, a.CpuTempMax));
-        (_gpuOn.Checked, _gpuMax.Value) = (a.GpuTempEnabled, Clamp(_gpuMax, a.GpuTempMax));
-        (_ramOn.Checked, _ramMax.Value) = (a.RamEnabled, Clamp(_ramMax, a.RamMaxPercent));
-        (_vramOn.Checked, _vramMax.Value) = (a.VramEnabled, Clamp(_vramMax, a.VramMaxPercent));
-        (_fpsOn.Checked, _fpsMin.Value, _fpsSec.Value) = (a.FpsEnabled, Clamp(_fpsMin, a.FpsMin), Clamp(_fpsSec, a.FpsSeconds));
-        _hold.Value = Clamp(_hold, a.HoldSeconds);
+        (_cpuOn.Checked, _cpuMax.Value) = (a.CpuTempEnabled, Ui.Clamp(_cpuMax, a.CpuTempMax));
+        (_gpuOn.Checked, _gpuMax.Value) = (a.GpuTempEnabled, Ui.Clamp(_gpuMax, a.GpuTempMax));
+        (_ramOn.Checked, _ramMax.Value) = (a.RamEnabled, Ui.Clamp(_ramMax, a.RamMaxPercent));
+        (_vramOn.Checked, _vramMax.Value) = (a.VramEnabled, Ui.Clamp(_vramMax, a.VramMaxPercent));
+        (_fpsOn.Checked, _fpsMin.Value, _fpsSec.Value) = (a.FpsEnabled, Ui.Clamp(_fpsMin, a.FpsMin), Ui.Clamp(_fpsSec, a.FpsSeconds));
+        _hold.Value = Ui.Clamp(_hold, a.HoldSeconds);
 
-        _gpuIndex.Value = Clamp(_gpuIndex, _edit.Sensors.GpuIndex);
+        _gpuIndex.Value = Ui.Clamp(_gpuIndex, _edit.Sensors.GpuIndex);
         _labels.Text = JsonSerializer.Serialize(_edit.Sensors, new JsonSerializerOptions { WriteIndented = true });
     }
 
@@ -180,15 +230,15 @@ public sealed class SettingsForm : Form
     {
         if (!HotkeyWindow.TryParse(_hotkey.Text, out _, out _))
         {
-            MessageBox.Show(this, "Hotkey must look like Ctrl+Alt+Shift+D.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "The hotkey must look like Ctrl+Alt+Shift+D.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
-        Darkmount.Sensors.SensorOptions sensors;
-        try { sensors = JsonSerializer.Deserialize<Darkmount.Sensors.SensorOptions>(_labels.Text) ?? new(); }
+        SensorOptions sensors;
+        try { sensors = JsonSerializer.Deserialize<SensorOptions>(_labels.Text) ?? new(); }
         catch (JsonException e)
         {
-            MessageBox.Show(this, $"Sensor settings are not valid JSON:\n{e.Message}", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, $"The sensor names are not valid JSON:\n{e.Message}", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
         sensors.GpuIndex = (int)_gpuIndex.Value;
@@ -213,57 +263,16 @@ public sealed class SettingsForm : Form
         };
         s.Sensors = sensors;
         _apply(s);
+        _status.Text = $"Saved at {DateTime.Now:HH:mm:ss}";
     }
 
-    static AppSettings Clone(AppSettings s)
+    static AppSettings Clone(AppSettings s) => JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(s))!;
+
+    protected override void OnHandleCreated(EventArgs e)
     {
-        var json = JsonSerializer.Serialize(s);
-        return JsonSerializer.Deserialize<AppSettings>(json)!;
+        base.OnHandleCreated(e);
+        Ui.UseDarkTitleBar(this);
     }
-
-    static decimal Clamp(NumericUpDown n, double v) => Math.Clamp((decimal)v, n.Minimum, n.Maximum);
-
-    static TabPage Page(string title, Control content)
-    {
-        var page = new TabPage(title) { Padding = new Padding(8) };
-        content.Dock = DockStyle.Fill;
-        page.Controls.Add(content);
-        return page;
-    }
-
-    static TableLayoutPanel Grid(params (string Label, Control Control)[] rows)
-    {
-        var t = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Padding = new Padding(8) };
-        t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        foreach (var (label, control) in rows)
-        {
-            t.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 8, 12, 8) });
-            control.Margin = new Padding(3, 5, 3, 5);
-            t.Controls.Add(control);
-        }
-        return t;
-    }
-
-    static FlowLayoutPanel Pair(params object[] parts)
-    {
-        var p = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        foreach (var part in parts)
-            p.Controls.Add(part as Control ?? new Label { Text = (string)part, AutoSize = true, Margin = new Padding(3, 6, 3, 3) });
-        return p;
-    }
-
-    static ComboBox Combo<T>() where T : struct, Enum
-    {
-        var c = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
-        foreach (var v in Enum.GetValues<T>()) c.Items.Add(v);
-        return c;
-    }
-
-    static NumericUpDown Number(decimal min, decimal max, decimal step = 1, int decimals = 0) =>
-        new() { Minimum = min, Maximum = max, Increment = step, DecimalPlaces = decimals, Width = 80 };
-
-    static CheckBox Check(string text) => new() { Text = text, AutoSize = true, Margin = new Padding(3, 6, 3, 3) };
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
