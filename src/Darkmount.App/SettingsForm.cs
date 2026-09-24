@@ -52,7 +52,8 @@ public sealed class SettingsForm : Form
     /// <param name="status">Returns a multi-line status report for the Status page (null hides the page).</param>
     public SettingsForm(AppSettings current, Action<AppSettings> apply, Func<string>? status = null,
         KeyboardService? keyboard = null, Darkmount.Dock.DockConnection? dock = null, Macros.MacroManager? macros = null,
-        ProfileManager? profiles = null, Func<string?>? currentGame = null)
+        ProfileManager? profiles = null, Func<string?>? currentGame = null,
+        Func<Pages.HomeStatus>? home = null, Action<ScreenMode>? setMode = null, Action? togglePause = null)
     {
         _apply = apply;
         _status2 = status;
@@ -80,6 +81,8 @@ public sealed class SettingsForm : Form
         footer.Controls.Add(Ui.Button("Save", (_, _) => Save(), primary: true));
         footer.Controls.Add(_status);
 
+        if (home is not null)
+            AddPage("Home", new Pages.HomePage(home, setMode ?? (_ => { }), SelectPage, togglePause ?? (() => { })));
         AddPage("Dock screen", DockPage());
         AddPage("Animation", AnimationPage());
         AddPage("Alerts", AlertsPage());
@@ -127,6 +130,13 @@ public sealed class SettingsForm : Form
         button.Click += (_, _) => Select(index);
         _nav.Controls.Add(button);
         _pages.Add((button, page));
+    }
+
+    /// <summary>Shows the page with this sidebar title (used by the Home page's quick actions).</summary>
+    public void SelectPage(string title)
+    {
+        int i = _pages.FindIndex(p => p.Button.Text.Trim() == title);
+        if (i >= 0) Select(i);
     }
 
     void Select(int index)

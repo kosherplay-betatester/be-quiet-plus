@@ -21,7 +21,14 @@ public class SettingsFormTests
                     new Darkmount.Dock.DockConfigGuard(Path.Combine(Path.GetTempPath(), $"dmh-{Guid.NewGuid():N}.hex")), () => false);
                 using var macros = new Darkmount.App.Macros.MacroManager(Path.Combine(Path.GetTempPath(), $"dmh-{Guid.NewGuid():N}.json"));
                 using var form = new SettingsForm(new AppSettings(), _ => { }, () => "status", new KeyboardService(dock), dock, macros,
-                    new ProfileManager(new KeyboardService(dock), () => new AppSettings(), _ => { }), () => null);
+                    new ProfileManager(new KeyboardService(dock), () => new AppSettings(), _ => { }), () => null,
+                    () => new Darkmount.App.Pages.HomeStatus("Dark Mount", "Stats (updates every ~5 s)", "Rainbow wave at 12 fps",
+                        "Gaming", "3 active",
+                        [
+                            new("Keyboard connected", true, false, "Dark Mount is connected."),
+                            new("IO Center is closed", false, false, "IO Center is running, so Darkmount Hub has paused.", "Close IO Center", () => { }),
+                            new("HWiNFO shared memory (optional)", false, true, "Optional, more precise sensors."),
+                        ]));
                 form.StartPosition = FormStartPosition.Manual;
                 form.Location = new Point(-3000, -3000);
                 form.Show();

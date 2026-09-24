@@ -158,8 +158,79 @@ public sealed class TrayApp : ApplicationContext
     {
         if (_settingsForm is { IsDisposed: false }) { _settingsForm.Activate(); return; }
         _settingsForm = new SettingsForm(_settings, ApplySettings, StatusReport, _keyboard, _dock, _macros,
-            _profiles, () => _pipeline.LastSnapshot?.GameName);
+            _profiles, () => _pipeline.LastSnapshot?.GameName, HomeStatus, SetMode,
+            () => { _dock.Paused = !_dock.Paused; _dock.Tick(); });
         _settingsForm.Show();
+    }
+
+    DateTime _dynamicLightingCheckedAt;
+    bool _dynamicLightingOn;
+
+    Pages.HomeStatus HomeStatus()
+    {
+        var model = _dock.Model;
+        bool connected = _dock.State is DockState.Connected or DockState.Ready or DockState.NoMediaDock or DockState.KeyboardOnly;
+        var hints = _pipeline.LastSnapshot?.Hints ?? [];
+        string dock = !model.HasMediaDock ? "No screen on this keyboard"
+            : _dock.ShowingDockDefault || _settings.Mode == ScreenMode.DockDefault ? "be quiet! default screen"
+            : _dock.State == DockState.Ready ? $"{_pipeline.CurrentScreen} (updates every ~5 s)"
+            : _dock.State == DockState.NoMediaDock ? "Media dock not attached" : "Waiting for the keyboard";
+        if (DateTime.UtcNow - _dynamicLightingCheckedAt > TimeSpan.FromSeconds(15))
+        {
+            _dynamicLightingCheckedAt = DateTime.UtcNow;
+            try
+            {
+                var path = Darkmount.Keyboard.Lamps.HidSharpLampArrayTransport.Find(productId: model.ProductId)?.Device.DevicePath;
+                _dynamicLightingOn = Darkmount.Keyboard.Lamps.DynamicLighting.Read(path).WindowsMayDrive;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException) { }
+        }
+        bool ioCenter = IoCenterDetector.IsRunning();
+        var checks = new List<Pages.SetupCheck>
+        {
+            new("Keyboard connected", connected, false,
+                connected ? $"{model.Name} is connected." : _dock.LastError ?? "Plug in the keyboard's USB cable."),
+            new("IO Center is closed", !ioCenter, false,
+                ioCenter ? "IO Center is running, so Darkmount Hub has paused. Right-click its tray icon → Exit." : "Darkmount Hub controls the keyboard.",
+                "Close IO Center", CloseIoCenter),
+            new("MSI Afterburner is running", !hints.Contains(Darkmount.Sensors.SensorHub.HintAfterburner), false,
+                "Provides CPU/GPU temperature, power, load and FPS for the dashboard.", "Get Afterburner",
+                () => Pages.HomePage.Open("https://www.msi.com/Landing/afterburner/graphics-cards")),
+            new("RivaTuner Statistics Server is running", !hints.Contains(Darkmount.Sensors.SensorHub.HintRtss), false,
+                "Detects the running game (FPS row, per-game profiles). Installed together with Afterburner."),
+            new("HWiNFO shared memory (optional)", !hints.Contains(Darkmount.Sensors.SensorHub.HintHwInfo), true,
+                "Optional, more precise sensors: HWiNFO → Settings → Shared Memory Support."),
+            new("Windows Dynamic Lighting is off for the keyboard", !_dynamicLightingOn, false,
+                _dynamicLightingOn ? "Windows is driving the keyboard LEDs, so RGB effects can't run. Turn off \"Use Dynamic Lighting on my devices\"." : "RGB effects can drive the LEDs.",
+                "Open Windows lighting settings", () => Pages.HomePage.Open("ms-settings:personalization-lighting")),
+        };
+        if (model.HasMediaDock)
+            checks.Add(new("Dock screen is awake", !_dock.DockUnresponsive, false,
+                _dock.DockUnresponsive ? "Press any dock button once — the dock only accepts pictures while its screen is on." : "The dock is receiving pictures."));
+        checks.Add(new("Starts with Windows", Autostart.IsEnabled(), true, "So your lighting, macros and dashboard are always on.",
+            "Turn on", () => { _settings.StartWithWindows = true; TrySetAutostart(true); SaveSettings(); }));
+
+        int macros = _macros.Macros.Count(m => m.Enabled);
+        return new(
+            connected ? model.Name : "Not connected",
+            dock,
+            _settings.RgbEnabled ? _rgb.Status : "Keyboard's own effect",
+            _profiles.ActiveProfile ?? "No profile applied",
+            macros == 0 ? "No macros yet" : $"{macros} active",
+            checks);
+    }
+
+    static void CloseIoCenter()
+    {
+        foreach (var p in System.Diagnostics.Process.GetProcessesByName("IO_Center"))
+        {
+            using (p)
+            {
+                if (!p.CloseMainWindow())
+                    MessageBox.Show("Please close IO Center from its tray icon (right-click → Exit).", "Darkmount Hub",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
     }
 
     string StatusReport()
