@@ -96,9 +96,11 @@ public sealed class FramePipeline : IDisposable
         using var frame = DockRenderer.Render(screen, ctx);
         FrameRendered?.Invoke(frame.Copy());
 
+        _dock.ShowAppScreens = settings.Mode != ScreenMode.DockDefault;
         if (_dock.State is not (DockState.Connected or DockState.Ready)) { _lastUploaded = null; return; }
 
         var pixels = Rgb565.FromBitmap(frame);
+        if (!_dock.ShowAppScreens) { _dock.Present(pixels); _lastUploaded = null; return; } // releases the screen
         if (_dock.State == DockState.Ready && _lastUploaded is not null && pixels.AsSpan().SequenceEqual(_lastUploaded)) return;
         if (_dock.Present(pixels)) _lastUploaded = pixels;
     }

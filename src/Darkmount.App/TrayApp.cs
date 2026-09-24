@@ -12,7 +12,8 @@ public sealed class TrayApp : ApplicationContext
     readonly NotifyIcon _tray;
     readonly ContextMenuStrip _menu = new();
     readonly ToolStripMenuItem _status = new() { Enabled = false };
-    readonly ToolStripMenuItem _auto = new("Auto (stats in games)"), _stats = new("Stats"), _anim = new("Animation");
+    readonly ToolStripMenuItem _auto = new("Auto (stats in games)"), _stats = new("Stats"), _anim = new("Animation"),
+        _dockDefault = new("be quiet! default screen");
     readonly ToolStripMenuItem _pause = new("Pause dock"), _autostart = new("Start with Windows");
     readonly System.Windows.Forms.Timer _uiTimer = new() { Interval = 1000 };
     readonly System.Threading.Timer _tickTimer;
@@ -67,6 +68,7 @@ public sealed class TrayApp : ApplicationContext
         _auto.Click += (_, _) => SetMode(ScreenMode.Auto);
         _stats.Click += (_, _) => SetMode(ScreenMode.Stats);
         _anim.Click += (_, _) => SetMode(ScreenMode.Animation);
+        _dockDefault.Click += (_, _) => SetMode(ScreenMode.DockDefault);
 
         var animations = new ToolStripMenuItem("Animation source");
         foreach (var kind in new[] { AnimationKind.Plasma, AnimationKind.Matrix, AnimationKind.Starfield })
@@ -85,7 +87,7 @@ public sealed class TrayApp : ApplicationContext
 
         _menu.Items.AddRange([
             _status, new ToolStripSeparator(),
-            _auto, _stats, _anim, animations, new ToolStripSeparator(),
+            _auto, _stats, _anim, _dockDefault, animations, new ToolStripSeparator(),
             _pause, new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()), _autostart,
             new ToolStripMenuItem("Open log folder", null, (_, _) => OpenLogs()), new ToolStripSeparator(),
             new ToolStripMenuItem("Exit", null, (_, _) => ExitThread()),
@@ -99,6 +101,7 @@ public sealed class TrayApp : ApplicationContext
         _auto.Checked = _settings.Mode == ScreenMode.Auto;
         _stats.Checked = _settings.Mode == ScreenMode.Stats;
         _anim.Checked = _settings.Mode == ScreenMode.Animation;
+        _dockDefault.Checked = _settings.Mode == ScreenMode.DockDefault;
         _pause.Checked = _dock.Paused;
         _autostart.Checked = Autostart.IsEnabled();
         UpdateStatus();
@@ -116,7 +119,7 @@ public sealed class TrayApp : ApplicationContext
     {
         _settings.AnimationKind = kind;
         _settings.AnimationPath = path;
-        if (_settings.Mode == ScreenMode.Stats) _settings.Mode = ScreenMode.Animation;
+        if (_settings.Mode is ScreenMode.Stats or ScreenMode.DockDefault) _settings.Mode = ScreenMode.Animation;
         SaveSettings();
         _pipeline.RefreshNow();
     }
@@ -139,11 +142,8 @@ public sealed class TrayApp : ApplicationContext
         if (dlg.ShowDialog() == DialogResult.OK) SetAnimation(AnimationKind.Folder, dlg.SelectedPath);
     }
 
-    void CycleScreen()
-    {
-        _pipeline.Switcher.Cycle();
-        _pipeline.RefreshNow();
-    }
+    /// <summary>Hotkey: Auto (dashboard) → Animation → be quiet! default screen → Auto.</summary>
+    void CycleScreen() => SetMode(AutoSwitcher.NextMode(_settings.Mode));
 
     void ShowSettings()
     {
@@ -224,6 +224,7 @@ public sealed class TrayApp : ApplicationContext
         string state = _dock.State switch
         {
             DockState.Connected or DockState.Ready when _dock.DockUnresponsive => "Dock not responding: press a dock button to wake it",
+            DockState.Connected when _dock.ShowingDockDefault => "Dock shows its be quiet! screen (keyboard features active)",
             DockState.Ready => $"Showing {_pipeline.CurrentScreen} on the dock",
             DockState.Connected => "Connecting to the dock…",
             DockState.PausedForIoCenter => "Paused: IO Center is running",

@@ -5,7 +5,8 @@ using Darkmount.Sensors;
 
 namespace Darkmount.App;
 
-public enum ScreenMode { Auto, Stats, Animation }
+/// <summary>What the dock shows. <see cref="DockDefault"/> hands the screen back to the keyboard's own be quiet! menu.</summary>
+public enum ScreenMode { Auto, Stats, Animation, DockDefault }
 public enum ScreenKind { Stats, Animation }
 
 public sealed class AlertSettings

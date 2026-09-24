@@ -177,6 +177,7 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
         lock (_io)
         {
             if (_uploader is null || State is not (DockState.Connected or DockState.Ready)) return false;
+            if (!ShowAppScreens) { ShowDockDefault(); return false; }
             if (DateTime.UtcNow < _resumeAt) return false;
             try
             {
@@ -196,6 +197,7 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
                 FramesUploaded++;
                 LastUploadDuration = _uploader.LastDuration;
                 _lastTraffic = DateTime.UtcNow;
+                ShowingDockDefault = false;
                 if (_needsRunningConfig)
                 {
                     // Order matters: enable the screensaver only after a complete image exists.
@@ -216,6 +218,29 @@ public sealed class DockConnection(Func<IHidTransport?> openTransport, DockConfi
             }
             catch (Exception e) when (IsDeviceFailure(e)) { Lost(e); return false; }
         }
+    }
+
+    /// <summary>
+    /// False shows the dock's own be quiet! screen (the user's dock settings) while keeping the keyboard session
+    /// for lighting and keys. Applied on the next <see cref="Present"/>.
+    /// </summary>
+    public bool ShowAppScreens { get; set; } = true;
+
+    /// <summary>True while the dock shows its own screen because <see cref="ShowAppScreens"/> is false.</summary>
+    public bool ShowingDockDefault { get; private set; }
+
+    void ShowDockDefault()
+    {
+        if (State != DockState.Ready || _original is null) { ShowingDockDefault = State == DockState.Connected; return; }
+        try
+        {
+            _dock!.SetConfig(_original);
+            _needsRunningConfig = true; // our screensaver config is re-applied after the next complete frame
+            ShowingDockDefault = true;
+            Log?.Invoke("Showing the dock's own screen");
+            SetState(DockState.Connected);
+        }
+        catch (Exception e) when (IsDeviceFailure(e)) { Lost(e); }
     }
 
     bool DockWentAway()

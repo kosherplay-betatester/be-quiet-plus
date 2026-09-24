@@ -250,6 +250,29 @@ public class DockTests : IDisposable
     }
 
     [Fact]
+    public void Switching_to_the_dock_default_screen_restores_settings_and_keeps_the_session()
+    {
+        var h = new Harness(_dir);
+        h.Conn.Tick();
+        h.Conn.Present(Frame(3));
+        int imagesBefore = SetImages(h.Transport).Count;
+
+        h.Conn.ShowAppScreens = false;
+        Assert.False(h.Conn.Present(Frame(4)));
+
+        Assert.True(h.Conn.ShowingDockDefault);
+        Assert.Equal(DockConfig.UserOriginal, DockConfig.FromBytes(h.SetConfigs()[^1].Data));
+        Assert.Equal(imagesBefore, SetImages(h.Transport).Count); // nothing uploaded while the dock shows its own screen
+        Assert.True(h.Conn.TryExecute(q => q.KeepAlive()));
+
+        h.Conn.ShowAppScreens = true;
+        Assert.True(h.Conn.Present(Frame(5)));
+        Assert.False(h.Conn.ShowingDockDefault);
+        Assert.Equal(DockState.Ready, h.Conn.State);
+        Assert.Equal(DockConfigGuard.Running(DockConfig.UserOriginal, 1), DockConfig.FromBytes(h.SetConfigs()[^1].Data));
+    }
+
+    [Fact]
     public void Detached_media_dock_keeps_the_session_for_keyboard_features()
     {
         var h = new Harness(_dir);

@@ -111,6 +111,14 @@ public class AppLogicTests
         Assert.Equal(ScreenKind.Stats, sw.Update(false, new AppSettings { Mode = ScreenMode.Stats }));
     }
 
+    [Fact]
+    public void Hotkey_cycles_dashboard_animation_and_the_dock_default_screen()
+    {
+        Assert.Equal(ScreenMode.Animation, AutoSwitcher.NextMode(ScreenMode.Auto));
+        Assert.Equal(ScreenMode.DockDefault, AutoSwitcher.NextMode(ScreenMode.Animation));
+        Assert.Equal(ScreenMode.Auto, AutoSwitcher.NextMode(ScreenMode.DockDefault));
+    }
+
     // ---------------------------------------------------------------- Settings
 
     [Fact]

@@ -25,6 +25,14 @@ public sealed class AutoSwitcher
         return Current;
     }
 
+    /// <summary>The hotkey's order: Auto (dashboard) → Animation → be quiet! default screen → Auto.</summary>
+    public static ScreenMode NextMode(ScreenMode mode) => mode switch
+    {
+        ScreenMode.Auto or ScreenMode.Stats => ScreenMode.Animation,
+        ScreenMode.Animation => ScreenMode.DockDefault,
+        _ => ScreenMode.Auto,
+    };
+
     /// <summary>Switches to the next screen until the game state changes.</summary>
     public void Cycle() => _manual = Current == ScreenKind.Stats ? ScreenKind.Animation : ScreenKind.Stats;
 
