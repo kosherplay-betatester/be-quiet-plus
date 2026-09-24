@@ -37,7 +37,7 @@ public static class IoCenterImport
     public static string AssetsFolder { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "be quiet!", "IO Center", "assets");
 
-    const int MaxFileBytes = 64 * 1024 * 1024;
+    const int MaxFileBytes = 64 * 1024 * 1024, MaxAssetBytes = 8 * 1024 * 1024;
 
     enum IoEffect { Breathing, ColorWave, Gif, Image, Matrix, MulticolorStatic, Reactive, ScreenCapture, ScreenSync, Sensor, Static, Tornado, Video, Off, Ripple }
 
@@ -77,21 +77,35 @@ public static class IoCenterImport
     {
         var bytes = File.ReadAllBytes(path);
         if (bytes.Length > MaxFileBytes) throw new InvalidDataException("The file is too large to be an IO Center profile.");
-        if (bytes is not [(byte)'P', (byte)'K', ..]) return (System.Text.Encoding.UTF8.GetString(bytes).TrimStart('﻿'), null);
+        if (bytes is not [(byte)'P', (byte)'K', ..]) return (System.Text.Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF'), null);
 
         using var zip = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
         var data = zip.GetEntry("data") ?? throw new InvalidDataException("This .ioprofile has no profile data.");
-        string json;
-        using (var r = new StreamReader(data.Open())) json = r.ReadToEnd();
+        string json = System.Text.Encoding.UTF8.GetString(ReadBounded(data, MaxFileBytes)).TrimStart('\uFEFF');
         var assets = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        foreach (var e in zip.Entries.Where(e => e.FullName.StartsWith("assets/", StringComparison.OrdinalIgnoreCase) && e.Length is > 0 and < 8 << 20))
+        long total = 0;
+        foreach (var e in zip.Entries.Where(e => e.FullName.StartsWith("assets/", StringComparison.OrdinalIgnoreCase) && e.Length is > 0 and < MaxAssetBytes))
         {
-            using var s = e.Open();
-            using var m = new MemoryStream();
-            s.CopyTo(m);
-            assets[Path.GetFileNameWithoutExtension(e.Name)] = m.ToArray();
+            var picture = ReadBounded(e, MaxAssetBytes);
+            if ((total += picture.Length) > MaxFileBytes) throw new InvalidDataException("This .ioprofile has far too many pictures.");
+            assets[Path.GetFileNameWithoutExtension(e.Name)] = picture;
         }
         return (json, assets);
+    }
+
+    /// <summary>Unpacks an entry, counting what actually comes out (a declared size can lie: zip bombs).</summary>
+    static byte[] ReadBounded(ZipArchiveEntry entry, int max)
+    {
+        using var s = entry.Open();
+        using var m = new MemoryStream();
+        var buffer = new byte[81920];
+        int read;
+        while ((read = s.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            m.Write(buffer, 0, read);
+            if (m.Length > max) throw new InvalidDataException("This .ioprofile is too large to be an IO Center profile.");
+        }
+        return m.ToArray();
     }
 
     static byte[]? FromZip(Dictionary<string, byte[]> assets, string url) =>

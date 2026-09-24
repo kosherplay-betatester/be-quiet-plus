@@ -87,17 +87,32 @@ public sealed class FramePipeline : IDisposable
     /// <summary>Windows media calls can block for seconds, so they run on their own thread.</summary>
     void PollMedia()
     {
-        while (!_stop)
+        try
         {
-            _media = _mediaReader.Poll();
-            _stopped.Wait(2000);
+            while (!_stop)
+            {
+                _media = _mediaReader.Poll();
+                _stopped.Wait(2000);
+            }
         }
+        catch (ObjectDisposedException) { } // shutting down
     }
 
     /// <summary>Renders and uploads a new frame as soon as possible (screen switch, settings change).</summary>
     public void RefreshNow() => _wake.Set();
 
+    /// <remarks>
+    /// Raw threads take the whole process down on an unhandled exception, so everything here is caught; after
+    /// <see cref="Dispose"/> the wait handles may already be gone, which simply ends the loop.
+    /// </remarks>
     void Run()
+    {
+        try { RunLoop(); }
+        catch (ObjectDisposedException) when (_stop) { }
+        catch (Exception e) { Log.Write($"Frame pipeline stopped: {e}"); }
+    }
+
+    void RunLoop()
     {
         while (!_stop)
         {
@@ -197,9 +212,16 @@ public sealed class FramePipeline : IDisposable
         _stop = true;
         _wake.Set();
         _stopped.Set();
-        if (_thread.IsAlive) _thread.Join(TimeSpan.FromSeconds(5));
-        if (_mediaThread.IsAlive) _mediaThread.Join(TimeSpan.FromSeconds(5));
-        _mediaReader.Dispose();
+        // An upload in progress can take up to ~13 s (header + chunk timeouts) before the loop sees _stop.
+        bool renderDone = !_thread.IsAlive || _thread.Join(TimeSpan.FromSeconds(15));
+        bool mediaDone = !_mediaThread.IsAlive || _mediaThread.Join(TimeSpan.FromSeconds(5));
+        _mediaReader.Dispose(); // thread-safe: a poll in progress finishes, later polls return null
+        if (!renderDone || !mediaDone)
+        {
+            // Leave what the stuck thread may still touch to the garbage collector instead of pulling it away.
+            Log.Write("Frame pipeline did not stop in time; leaving its resources to finish on their own");
+            return;
+        }
         _animation?.Dispose();
         _sensors.Dispose();
         _wake.Dispose();

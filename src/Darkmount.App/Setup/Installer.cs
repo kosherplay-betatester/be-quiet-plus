@@ -107,8 +107,12 @@ public static class Installer
         Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, throwOnMissingSubKey: false);
         if (removeUserData)
         {
-            var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OverMount");
-            if (Directory.Exists(data)) Directory.Delete(data, recursive: true);
+            // Settings, profiles, macros and backups (roaming) plus logs and cached display-key pictures (local).
+            foreach (var root in new[] { Environment.SpecialFolder.ApplicationData, Environment.SpecialFolder.LocalApplicationData })
+            {
+                var data = Path.Combine(Environment.GetFolderPath(root), "OverMount");
+                if (Directory.Exists(data)) Directory.Delete(data, recursive: true);
+            }
         }
         if (Directory.Exists(InstallDir))
         {
