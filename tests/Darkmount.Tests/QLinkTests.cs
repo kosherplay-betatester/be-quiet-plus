@@ -193,6 +193,56 @@ public class QLinkTests
     }
 
     [Fact]
+    public void Sequence_releases_held_replies_by_sending_the_next_part_and_never_repeats()
+    {
+        var t = new HoldingTransport();
+        using var q = new QLinkClient(t);
+        var parts = Enumerable.Range(0, 6).Select(i => new byte[] { 0, (byte)i, 0, 0, 0, 1, 2, 3 }).ToList();
+
+        q.SendSequence(Features.MediaDock, MediaDockCommands.SetImage, parts, heldAfterMs: 30, timeoutMs: 1000, finalGraceMs: 60);
+
+        Assert.Equal(6, t.SetImageWrites);   // each part exactly once
+        Assert.Equal(0, t.GetStateWrites);
+        Assert.Equal(1, q.HeldFinalReplies); // the last reply stayed held and was accepted
+    }
+
+    [Fact]
+    public void Sequence_with_prompt_replies_sends_each_part_once()
+    {
+        var t = new FakeTransport();
+        using var q = new QLinkClient(t);
+        var parts = Enumerable.Range(0, 5).Select(i => new byte[] { 0, (byte)i, 0, 0, 0, 9 }).ToList();
+
+        q.SendSequence(Features.MediaDock, MediaDockCommands.SetImage, parts, heldAfterMs: 30);
+
+        Assert.Equal(5, t.Requests.Count);
+        Assert.Equal(0, q.HeldFinalReplies);
+    }
+
+    [Fact]
+    public void Sequence_stops_on_a_rejected_part()
+    {
+        var t = new FakeTransport { Responder = req => FakeTransport.Reply(req, [], status: 10) };
+        using var q = new QLinkClient(t);
+
+        var ex = Assert.Throws<QLinkException>(() => q.SendSequence(Features.MediaDock, MediaDockCommands.SetImage,
+            [new byte[] { 0, 0, 0, 0, 0, 1 }, new byte[] { 0, 1, 0, 0, 0, 1 }], heldAfterMs: 30));
+        Assert.Equal(QLinkStatus.InvalidState, ex.Status);
+    }
+
+    [Fact]
+    public void Sequence_times_out_when_the_device_is_silent()
+    {
+        var t = new FakeTransport { Responder = _ => null };
+        using var q = new QLinkClient(t);
+        var parts = Enumerable.Range(0, 4).Select(i => new byte[] { 0, (byte)i, 0, 0, 0, 1 }).ToList();
+
+        Assert.Throws<TimeoutException>(() => q.SendSequence(Features.MediaDock, MediaDockCommands.SetImage, parts,
+            heldAfterMs: 20, timeoutMs: 100, finalGraceMs: 50));
+        Assert.Equal(2, t.Requests.Count); // at most two outstanding, never a repeat
+    }
+
+    [Fact]
     public void GetState_nudge_mode_sends_a_status_request()
     {
         var t = new HoldingTransport();

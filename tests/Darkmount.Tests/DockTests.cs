@@ -40,20 +40,31 @@ public class DockTests : IDisposable
     }
 
     [Fact]
-    public void A_stall_mid_upload_abandons_the_frame_without_resending()
+    public void A_missing_reply_mid_upload_never_causes_a_repeated_chunk()
     {
         var t = new FakeTransport();
         var q = new QLinkClient(t);
         t.Responder = req => req.Command == MediaDockCommands.SetImage && OffsetOf(req) == 4009 ? null : FakeTransport.Ok(req);
-        q.NudgeAfterMs = 20;
-        var up = new FrameUploader(new MediaDock(q)) { HeaderTimeoutMs = 200, ChunkTimeoutMs = 200 };
+        var up = new FrameUploader(new MediaDock(q)) { HeaderTimeoutMs = 200, ChunkTimeoutMs = 400 };
+
+        up.Upload(Frame(2));
+
+        // Every chunk exactly once, in order — a repeated chunk would make the dock reject the image.
+        var offsets = SetImages(t).Select(OffsetOf).ToList();
+        Assert.Equal(offsets.Distinct().Count(), offsets.Count);
+        Assert.Equal(Enumerable.Range(0, 39).Select(i => 9u + (uint)i * 4000).Prepend(0u), offsets);
+    }
+
+    [Fact]
+    public void A_silent_dock_stalls_the_frame_after_two_outstanding_chunks()
+    {
+        var t = new FakeTransport();
+        var q = new QLinkClient(t);
+        t.Responder = req => req.Command == MediaDockCommands.SetImage && OffsetOf(req) > 0 ? null : FakeTransport.Ok(req);
+        var up = new FrameUploader(new MediaDock(q)) { HeaderTimeoutMs = 200, ChunkTimeoutMs = 300 };
 
         Assert.Equal(UploadResult.Stalled, up.Upload(Frame(2)));
-
-        // Stopped at the stalled chunk: only that same chunk was repeated (as a nudge), nothing after it.
-        var offsets = SetImages(t).Select(OffsetOf).ToList();
-        Assert.Equal([0u, 9u, 4009u], offsets.Take(3));
-        Assert.All(offsets.Skip(3), o => Assert.Equal(4009u, o));
+        Assert.Equal([0u, 9u, 4009u], SetImages(t).Select(OffsetOf));
     }
 
     [Fact]

@@ -51,11 +51,9 @@ public sealed class FrameUploader(MediaDock dock)
             try
             {
                 dock.SetImage(MediaDock.SlotScreensaver, 0, _header, HeaderTimeoutMs);
-                for (offset = 0; offset < FrameBytes; offset += ChunkSize)
-                {
-                    int len = Math.Min(ChunkSize, FrameBytes - offset);
-                    dock.SetImage(MediaDock.SlotScreensaver, (uint)(MediaDock.HeaderSize + offset), rgb565.AsSpan(offset, len), ChunkTimeoutMs);
-                }
+                offset = 0;
+                // Pipelined and never repeated: the dock rejects an image if any chunk arrives twice.
+                dock.SetImageData(MediaDock.SlotScreensaver, rgb565, ChunkSize, ChunkTimeoutMs);
                 LastDuration = sw.Elapsed;
                 return UploadResult.Done;
             }

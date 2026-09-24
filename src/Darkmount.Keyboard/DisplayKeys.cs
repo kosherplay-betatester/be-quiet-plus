@@ -57,8 +57,20 @@ public sealed class DisplayKeys(QLinkClient q)
         BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(6), ImageSize);
         header[8] = FormatJpeg;
         Write(index, 0, header, 8000);
+        // Pipelined, never repeated (the firmware can hold a reply until the next write; a repeat corrupts the image).
+        var payloads = new List<byte[]>();
         for (int off = 0; off < jpeg.Length; off += WriteChunk)
-            Write(index, HeaderSize + off, jpeg.AsSpan(off, Math.Min(WriteChunk, jpeg.Length - off)), 5000);
+            payloads.Add(Payload(index, HeaderSize + off, jpeg.AsSpan(off, Math.Min(WriteChunk, jpeg.Length - off))));
+        q.SendSequence(Features.Numpad, NumpadCommands.SetImage, payloads);
+    }
+
+    static byte[] Payload(int index, int offset, ReadOnlySpan<byte> data)
+    {
+        var payload = new byte[6 + data.Length];
+        BinaryPrimitives.WriteUInt16LittleEndian(payload, KeyId(index));
+        BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(2), (uint)offset);
+        data.CopyTo(payload.AsSpan(6));
+        return payload;
     }
 
     byte[] Read(int index, int offset, int size)
@@ -70,14 +82,8 @@ public sealed class DisplayKeys(QLinkClient q)
         return q.Send(Features.Numpad, NumpadCommands.GetImage, req);
     }
 
-    void Write(int index, int offset, ReadOnlySpan<byte> data, int timeoutMs)
-    {
-        var payload = new byte[6 + data.Length];
-        BinaryPrimitives.WriteUInt16LittleEndian(payload, KeyId(index));
-        BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(2), (uint)offset);
-        data.CopyTo(payload.AsSpan(6));
-        q.Send(Features.Numpad, NumpadCommands.SetImage, payload, timeoutMs);
-    }
+    void Write(int index, int offset, ReadOnlySpan<byte> data, int timeoutMs) =>
+        q.Send(Features.Numpad, NumpadCommands.SetImage, Payload(index, offset, data), timeoutMs, allowNudge: false);
 
     /// <summary>Cover-scales to 120×120, rotates 90° clockwise (the panel's orientation) and encodes JPEG.</summary>
     public static byte[] EncodeForKey(SKBitmap source, int quality = 92)
